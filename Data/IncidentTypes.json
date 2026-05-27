@@ -1,0 +1,160 @@
+[
+    {
+        "type": "FenderBender",
+        "lambda": 0.005,
+        "requires_decision": false,
+        "auto_resolve_role": "Maintenance",
+        "timer_seconds": 0,
+        "faction_delta_on_expire": { "city_authority": -1 },
+        "tile_trigger": "high_congestion"
+    },
+    {
+        "type": "OilSpill",
+        "lambda": 0.003,
+        "requires_decision": false,
+        "auto_resolve_role": "Maintenance",
+        "timer_seconds": 0,
+        "faction_delta_on_expire": {},
+        "tile_trigger": "random_lane"
+    },
+    {
+        "type": "OverstayVehicle",
+        "lambda": 0.010,
+        "requires_decision": true,
+        "timer_seconds": 60,
+        "branches": [
+            {
+                "label": "Tow the Vehicle",
+                "faction_delta": { "shadow_clients": -5 },
+                "consequence": "vehicle_towed_revenue_recovered"
+            },
+            {
+                "label": "Issue Fine Only",
+                "faction_delta": { "city_authority": 1 },
+                "consequence": "fine_issued_vehicle_stays"
+            },
+            {
+                "label": "Look the Other Way",
+                "faction_delta": { "shadow_clients": 3 },
+                "consequence": "vehicle_stays_no_consequence"
+            }
+        ],
+        "default_branch": 1
+    },
+    {
+        "type": "PowerOutage",
+        "lambda": 0.001,
+        "requires_decision": false,
+        "auto_resolve_role": "Maintenance",
+        "timer_seconds": 0,
+        "faction_delta_on_expire": { "city_authority": -3 },
+        "tile_trigger": "power_event"
+    },
+    {
+        "type": "SuspiciousVehicle",
+        "lambda": 0.002,
+        "requires_decision": true,
+        "timer_seconds": 45,
+        "branches": [
+            {
+                "label": "Report to Police",
+                "faction_delta": { "police": 5, "shadow_clients": -10 },
+                "consequence": "vehicle_towed_police_arrive"
+            },
+            {
+                "label": "Look the Other Way",
+                "faction_delta": { "police": -2, "shadow_clients": 5 },
+                "consequence": "vehicle_stays_shadow_credit"
+            },
+            {
+                "label": "Approach and Question",
+                "faction_delta": { "shadow_clients": -3 },
+                "consequence": "incident_resolved_neutral"
+            }
+        ],
+        "default_branch": 1
+    },
+    {
+        "type": "MedicalEmergency",
+        "lambda": 0.0005,
+        "requires_decision": true,
+        "timer_seconds": 30,
+        "branches": [
+            {
+                "label": "Call 911",
+                "faction_delta": { "police": 3, "city_authority": 2 },
+                "consequence": "emergency_services_arrive"
+            },
+            {
+                "label": "Handle Quietly",
+                "faction_delta": { "police": -5 },
+                "consequence": "incident_contained_no_services"
+            }
+        ],
+        "default_branch": 0
+    },
+    {
+        "type": "TheftInProgress",
+        "lambda": 0.002,
+        "requires_decision": true,
+        "timer_seconds": 40,
+        "tile_trigger": "low_camera_coverage",
+        "branches": [
+            {
+                "label": "Security Intervenes",
+                "faction_delta": { "police": 2, "city_authority": 1 },
+                "consequence": "thief_apprehended"
+            },
+            {
+                "label": "Call Police",
+                "faction_delta": { "police": 5, "shadow_clients": -8 },
+                "consequence": "police_arrive_arrest"
+            },
+            {
+                "label": "Ignore",
+                "faction_delta": { "city_authority": -4, "police": -3 },
+                "consequence": "theft_completed_revenue_lost"
+            }
+        ],
+        "default_branch": 2
+    },
+    {
+        "type": "StructuralCrack",
+        "lambda": 0.0008,
+        "requires_decision": false,
+        "auto_resolve_role": "Maintenance",
+        "timer_seconds": 0,
+        "faction_delta_on_expire": { "city_authority": -2 },
+        "tile_trigger": "low_integrity_floor",
+        "notes": "Mandatory repair cost. Adds to ActiveCrackCount until resolved."
+    },
+    {
+        "type": "Altercation",
+        "lambda": 0.003,
+        "requires_decision": true,
+        "timer_seconds": 35,
+        "branches": [
+            {
+                "label": "Security Handles It",
+                "faction_delta": { "city_authority": 1 },
+                "consequence": "altercation_broken_up"
+            },
+            {
+                "label": "Call Police",
+                "faction_delta": { "police": 4, "shadow_clients": -6 },
+                "consequence": "police_arrive_incident_closed"
+            }
+        ],
+        "default_branch": 0
+    },
+    {
+        "type": "PipeBurst",
+        "lambda": 0.0007,
+        "requires_decision": false,
+        "auto_resolve_role": "Maintenance",
+        "timer_seconds": 0,
+        "faction_delta_on_expire": { "city_authority": -5 },
+        "tile_trigger": "deep_floor_rain_active",
+        "notes": "Triggers automatic floor evacuation. Vehicles on floor despawn."
+    }
+]
