@@ -1,4 +1,6 @@
-#include "Framework/SubLevelFramework.h"
+#include "Framework/SubLevelGameMode.h"
+#include "Framework/SubLevelGameState.h"
+#include "Framework/SubLevelPlayerController.h"
 #include "Subsystems/SimulationSubsystem.h"
 #include "Subsystems/EventBusSubsystem.h"
 #include "Engine/World.h"
@@ -10,9 +12,8 @@
 
 ASubLevelGameMode::ASubLevelGameMode()
 {
-    // Set default classes — assign in Blueprint subclass or here directly
-    // GameStateClass       = ASubLevelGameState::StaticClass();
-    // PlayerControllerClass = ASubLevelPlayerController::StaticClass();
+    GameStateClass        = ASubLevelGameState::StaticClass();
+    PlayerControllerClass = ASubLevelPlayerController::StaticClass();
 }
 
 void ASubLevelGameMode::InitGame(
@@ -35,29 +36,22 @@ void ASubLevelGameMode::StartPlay()
 void ASubLevelGameMode::LoadSessionFromSeed(int32 SavedSeed, uint64 SavedTick, int32 SavedDay)
 {
     InitializeSubsystems(SavedSeed);
-    // SaveSystem will restore full state after this call
     UE_LOG(LogTemp, Log, TEXT("[GameMode] Loaded session. Seed=%d, Tick=%llu, Day=%d"),
         SavedSeed, SavedTick, SavedDay);
 }
 
 int32 ASubLevelGameMode::GenerateSeed() const
 {
-    // Use current timestamp as entropy source
     return (int32)(FDateTime::UtcNow().GetTicks() & 0x7FFFFFFF);
 }
 
 void ASubLevelGameMode::InitializeSubsystems(int32 Seed)
 {
-    USimulationSubsystem* Sim = GetWorld()->GetSubsystem<USimulationSubsystem>();
-    if (Sim)
-    {
+    if (USimulationSubsystem* Sim = GetWorld()->GetSubsystem<USimulationSubsystem>())
         Sim->InitializeRNG(Seed);
-    }
 
     if (ASubLevelGameState* GS = GetGameState<ASubLevelGameState>())
-    {
         GS->ActiveSeed = Seed;
-    }
 
     UE_LOG(LogTemp, Log, TEXT("[GameMode] Subsystems initialized with seed: %d"), Seed);
 }
@@ -69,9 +63,9 @@ void ASubLevelGameMode::InitializeSubsystems(int32 Seed)
 
 ASubLevelGameState::ASubLevelGameState()
 {
-    constexpr int32 NumFloors = 5;  // B1–B5
+    constexpr int32 NumFloors = 5;
     FloorUnlocked.Init(false, NumFloors);
-    FloorUnlocked[0] = true;        // B1 pre-unlocked
+    FloorUnlocked[0] = true;
     FloorIntegrity.Init(1.0f, NumFloors);
 }
 
@@ -106,11 +100,8 @@ void ASubLevelGameState::ApplyFactionDelta(EFactionType Faction, float Delta)
 {
     FactionScores.Apply(Faction, Delta);
 
-    // Notify UI and city system via EventBus
     if (UEventBusSubsystem* Bus = UEventBusSubsystem::Get(this))
-    {
         Bus->OnFactionChanged.Broadcast(Faction, FactionScores.Get(Faction));
-    }
 }
 
 
@@ -120,69 +111,56 @@ void ASubLevelGameState::ApplyFactionDelta(EFactionType Faction, float Delta)
 
 ASubLevelPlayerController::ASubLevelPlayerController()
 {
-    bShowMouseCursor = true;
-    bEnableClickEvents = true;
+    bShowMouseCursor      = true;
+    bEnableClickEvents    = true;
     bEnableMouseOverEvents = true;
 }
 
 void ASubLevelPlayerController::BeginPlay()
 {
     Super::BeginPlay();
-
-    // Set up orthographic camera at 90°
-    // Camera actor placed in level looking straight down (-Z)
-    // OrthoWidth drives zoom level
     SetCameraZoom(CurrentOrthoWidth);
 }
 
 void ASubLevelPlayerController::SetupInputComponent()
 {
     Super::SetupInputComponent();
-    // Enhanced Input bindings set up here
-    // Assign IMC_Management as default context
+    // Enhanced Input contexts bound here once IMC assets are assigned in editor.
 }
 
 void ASubLevelPlayerController::SetPlayerMode(EPlayerMode NewMode)
 {
     CurrentMode = NewMode;
-
-    // Swap Enhanced Input Mapping Contexts
-    // IMC_Management / IMC_BuildMode / IMC_CCTV
-    // Implementation: use GetLocalPlayer()->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>()
+    // Swap Enhanced Input Mapping Contexts via UEnhancedInputLocalPlayerSubsystem.
 }
 
 void ASubLevelPlayerController::SwitchToFloor(int32 FloorIndex)
 {
     ActiveFloorIndex = FloorIndex;
-    // Notify HUD to update floor switcher highlight
-    // Pan camera to floor center (floors are vertically stacked in world space)
 }
 
 void ASubLevelPlayerController::SetCameraZoom(float NewOrthoWidth)
 {
     CurrentOrthoWidth = FMath::Clamp(NewOrthoWidth, MinOrthoWidth, MaxOrthoWidth);
-    // Apply to TopDownCamera->GetCameraComponent()->OrthoWidth
 }
 
 void ASubLevelPlayerController::PanCamera(FVector2D Delta)
 {
-    // Move TopDownCamera actor in XY plane — clamped to floor bounds
+    // Move TopDownCamera in XY — clamped to floor bounds.
 }
 
-void ASubLevelPlayerController::CycleNextCamera()
-{
-    // Advance ActiveCameraIdx, wrap around
-    // Pull camera feed texture from ASecurityCamera at new index
-}
-
-void ASubLevelPlayerController::CyclePrevCamera()
-{
-    // Decrement ActiveCameraIdx, wrap around
-}
+void ASubLevelPlayerController::CycleNextCamera()  {}
+void ASubLevelPlayerController::CyclePrevCamera()  {}
+void ASubLevelPlayerController::OnPan(const FInputActionValue&) {}
+void ASubLevelPlayerController::OnZoom(const FInputActionValue&) {}
+void ASubLevelPlayerController::OnToggleBuildMode() {}
+void ASubLevelPlayerController::OnToggleCCTV()      {}
+void ASubLevelPlayerController::OnFloorUp()         {}
+void ASubLevelPlayerController::OnFloorDown()       {}
 
 
 // ─────────────────────────────────────────────────────────────────
-// FACTION SCORE HELPERS (SubLevelTypes.cpp equivalent)
+// FACTION SCORE HELPERS
 // ─────────────────────────────────────────────────────────────────
 
 float FFactionScores::Get(EFactionType Faction) const
@@ -201,10 +179,10 @@ void FFactionScores::Apply(EFactionType Faction, float Delta)
     switch (Faction)
     {
         case EFactionType::CityAuthority:
-            CityAuthority  = FMath::Clamp(CityAuthority  + Delta, -100.0f, 100.0f); break;
+            CityAuthority = FMath::Clamp(CityAuthority + Delta, -100.0f, 100.0f); break;
         case EFactionType::Police:
-            Police         = FMath::Clamp(Police         + Delta, -100.0f, 100.0f); break;
+            Police        = FMath::Clamp(Police        + Delta, -100.0f, 100.0f); break;
         case EFactionType::ShadowClients:
-            ShadowClients  = FMath::Clamp(ShadowClients  + Delta, -100.0f, 100.0f); break;
+            ShadowClients = FMath::Clamp(ShadowClients + Delta, -100.0f, 100.0f); break;
     }
 }
