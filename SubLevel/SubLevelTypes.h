@@ -153,9 +153,16 @@ struct FStaffData
     int32               CurrentTileID = -1;
     TArray<FStaffTask>  TaskQueue;
 
-    bool IsOnShift()         const { return true; }  // Expand with shift schedule later
-    bool IsFatigued()        const { return Fatigue >= 0.8f; }
-    float ResolutionSpeed()  const;  // Implemented in .cpp — factors Role + Trait + Fatigue
+    bool IsOnShift()  const { return true; }
+    bool IsFatigued() const { return Fatigue >= 0.8f; }
+
+    float ResolutionSpeed() const
+    {
+        float Speed = 1.0f;
+        if (Trait == EStaffTrait::Experienced) Speed *= 1.4f;
+        if (Trait == EStaffTrait::Slow)        Speed *= 0.8f;
+        return Speed * FMath::Lerp(1.0f, 0.5f, Fatigue);
+    }
 };
 
 // ─────────────────────────────────────────────────────────────────

@@ -67,6 +67,14 @@ void ASubLevelGameMode::InitializeSubsystems(int32 Seed)
 // GAME STATE
 // ─────────────────────────────────────────────────────────────────
 
+ASubLevelGameState::ASubLevelGameState()
+{
+    constexpr int32 NumFloors = 5;  // B1–B5
+    FloorUnlocked.Init(false, NumFloors);
+    FloorUnlocked[0] = true;        // B1 pre-unlocked
+    FloorIntegrity.Init(1.0f, NumFloors);
+}
+
 bool ASubLevelGameState::IsFloorUnlocked(int32 FloorIndex) const
 {
     return FloorUnlocked.IsValidIndex(FloorIndex) && FloorUnlocked[FloorIndex];

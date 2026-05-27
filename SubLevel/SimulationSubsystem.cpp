@@ -152,7 +152,7 @@ void USimulationSubsystem::FirePendingEvents()
     while (EventQueue.Num() > 0 && EventQueue.HeapTop().ScheduledTick <= CurrentTick)
     {
         FPendingEvent E;
-        EventQueue.HeapPop(E, FPendingEvent());
+        EventQueue.HeapPop(E);
 
         FIncidentData NewIncident;
         NewIncident.ID          = NextIncidentID++;
@@ -181,7 +181,7 @@ void USimulationSubsystem::ScheduleIncident(
     E.TileID        = TileID;
     E.Severity      = Severity;
 
-    EventQueue.HeapPush(E, FPendingEvent());
+    EventQueue.HeapPush(E);
 }
 
 void USimulationSubsystem::ScheduleNextEvent(EIncidentType Type, int32 FloorIndex)
@@ -210,7 +210,7 @@ void USimulationSubsystem::ScheduleNextEvent(EIncidentType Type, int32 FloorInde
     Next.TileID        = -1;  // Assigned at fire time based on floor state
     Next.Severity      = SimRNG.FRandRange(0.3f, 1.0f);
 
-    EventQueue.HeapPush(Next, FPendingEvent());
+    EventQueue.HeapPush(Next);
 }
 
 float USimulationSubsystem::SamplePoissonInterval(float Lambda)
