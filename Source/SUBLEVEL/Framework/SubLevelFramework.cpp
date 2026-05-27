@@ -1,6 +1,4 @@
-#include "Framework/SubLevelGameMode.h"
-#include "Framework/SubLevelGameState.h"
-#include "Framework/SubLevelPlayerController.h"
+#include "Framework/SubLevelFramework.h"
 #include "Subsystems/SimulationSubsystem.h"
 #include "Subsystems/EventBusSubsystem.h"
 #include "Engine/World.h"
