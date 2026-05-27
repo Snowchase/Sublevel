@@ -1,0 +1,74 @@
+[
+    {
+        "type": "StadiumNight",
+        "scheduling": "scheduled",
+        "demand_multiplier": 3.5,
+        "duration_ticks": 4320,
+        "surge_pricing_active": true,
+        "operational_notes": "Surge pricing window opens. High congestion expected on all floors."
+    },
+    {
+        "type": "Rainstorm",
+        "scheduling": "stochastic",
+        "lambda": 0.0002,
+        "demand_multiplier": 1.8,
+        "duration_ticks": 7200,
+        "flooding_risk_floor_threshold": 3,
+        "operational_notes": "Flooding risk on B3+ when water table risk is active."
+    },
+    {
+        "type": "PoliceSweep",
+        "scheduling": "faction_triggered",
+        "trigger_faction": "police",
+        "trigger_threshold": -30,
+        "demand_multiplier": 0.4,
+        "duration_ticks": 2880,
+        "operational_notes": "Suspicious vehicles flee. Shadow income paused."
+    },
+    {
+        "type": "ProtestBlock",
+        "scheduling": "stochastic",
+        "lambda": 0.0001,
+        "demand_multiplier": 0.2,
+        "affected_side": "entry",
+        "duration_ticks": 5760,
+        "operational_notes": "One entry gate closed for duration."
+    },
+    {
+        "type": "ConcertLetout",
+        "scheduling": "scheduled",
+        "demand_spike_vehicles": 50,
+        "spike_window_ticks": 240,
+        "demand_multiplier": 2.5,
+        "duration_ticks": 600,
+        "operational_notes": "Burst of 50 vehicles in ~12 seconds. Severe congestion test."
+    },
+    {
+        "type": "CityInspection",
+        "scheduling": "faction_triggered",
+        "trigger_faction": "city_authority",
+        "trigger_threshold": -20,
+        "demand_multiplier": 1.0,
+        "duration_ticks": 1440,
+        "operational_notes": "Structural integrity checked. Fines if any floor below 0.5."
+    },
+    {
+        "type": "PowerGridStrain",
+        "scheduling": "stochastic",
+        "lambda": 0.00015,
+        "demand_multiplier": 1.0,
+        "partial_power_loss_chance": 0.4,
+        "duration_ticks": 3600,
+        "operational_notes": "Power loss risk on all floors. ALightFixtures may fail."
+    },
+    {
+        "type": "BlackMarketNight",
+        "scheduling": "faction_triggered",
+        "trigger_faction": "shadow_clients",
+        "trigger_threshold": 20,
+        "demand_multiplier": 1.2,
+        "unusual_vehicles": true,
+        "duration_ticks": 5760,
+        "operational_notes": "High shadow income opportunity. Police faction pressure risk."
+    }
+]

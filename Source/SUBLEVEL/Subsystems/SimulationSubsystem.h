@@ -7,6 +7,7 @@
 
 class UEventBusSubsystem;
 class AParkingFloor;
+class AVehicleAgent;
 
 // ─────────────────────────────────────────────────────────────────
 // PENDING EVENT (incident scheduler priority queue entry)
@@ -51,10 +52,10 @@ public:
     FRandomStream& GetRNG()          { return SimRNG; }
 
     // ── Vehicle Registry ─────────────────────────────────────────
-    // Called by AVehicleAgent on spawn/despawn
-    void RegisterVehicle(uint32 VehicleID, FVehicleData& Data);
+    void RegisterVehicle(uint32 VehicleID, FVehicleData& Data, AVehicleAgent* Actor);
     void UnregisterVehicle(uint32 VehicleID);
-    FVehicleData* GetVehicle(uint32 VehicleID);
+    FVehicleData*  GetVehicle(uint32 VehicleID);
+    AVehicleAgent* GetVehicleActor(uint32 VehicleID);
 
     int32 GetVehicleCountOnTile(int32 FloorIndex, int32 TileID) const;
 
@@ -81,6 +82,7 @@ private:
 
     void TickVehicles();
     void TickIncidentScheduler();
+    void TickVisibility();  // Processes light flicker; promotes visible pending incidents
     void TickStaff();
     void TickIntegrity();
     void TickEconomy();     // Delegates to UEconomySubsystem
@@ -95,9 +97,10 @@ private:
     int32         ActiveSeed = 0;
 
     // ── Registries ───────────────────────────────────────────────
-    TMap<uint32, FVehicleData>   Vehicles;   // VehicleID -> data
-    TMap<uint32, FIncidentData>  Incidents;  // IncidentID -> data
-    TMap<int32,  AParkingFloor*> Floors;     // FloorIndex -> actor ptr
+    TMap<uint32, FVehicleData>    Vehicles;      // VehicleID -> sim data
+    TMap<uint32, AVehicleAgent*>  VehicleActors; // VehicleID -> actor ptr (not UPROPERTY — managed lifetime)
+    TMap<uint32, FIncidentData>   Incidents;     // IncidentID -> data
+    TMap<int32,  AParkingFloor*>  Floors;        // FloorIndex -> actor ptr
     uint32 NextVehicleID  = 1;
     uint32 NextIncidentID = 1;
 

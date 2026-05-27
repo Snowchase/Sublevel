@@ -1,6 +1,9 @@
 #include "Subsystems/SimulationSubsystem.h"
 #include "Subsystems/EventBusSubsystem.h"
+#include "Subsystems/CitySubsystem.h"
+#include "Subsystems/EconomySubsystem.h"
 #include "Simulation/FloorGrid/ParkingFloor.h"
+#include "Simulation/Vehicle/VehicleAgent.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
 #include "Math/UnrealMathUtility.h"
@@ -69,6 +72,7 @@ void USimulationSubsystem::SimTick()
     // Order matters — city context affects demand before vehicles tick
     TickCity();
     TickIncidentScheduler();
+    TickVisibility();
     TickVehicles();
     TickStaff();
     TickIntegrity();
@@ -81,12 +85,37 @@ void USimulationSubsystem::SimTick()
 
 void USimulationSubsystem::TickVehicles()
 {
-    // Each vehicle advances its FSM one step per SimTick
-    // Actual movement interpolation is handled by AVehicleAgent on Engine Tick
-    for (auto& [ID, Data] : Vehicles)
+    // Rebuild dirty flow fields on all floors before vehicles move.
+    for (auto& [Index, Floor] : Floors)
     {
-        // Stub — VehicleAgent FSM tick will be implemented in §4
-        // Vehicle reads its floor's flow field direction, updates CurrentTileID
+        if (Floor) Floor->RebuildDirtyFlowFields();
+    }
+
+    // Advance each vehicle FSM by one step.
+    for (auto& [ID, Agent] : VehicleActors)
+    {
+        if (Agent && !Agent->IsActorBeingDestroyed())
+            Agent->SimTick(CurrentTick);
+    }
+
+    // Mirror actor state back into the Vehicles data map.
+    for (auto& [ID, Agent] : VehicleActors)
+    {
+        if (Agent && !Agent->IsActorBeingDestroyed())
+        {
+            if (FVehicleData* Data = Vehicles.Find(ID))
+                *Data = Agent->GetVehicleData();
+        }
+    }
+
+    // Remove despawned actors from registry.
+    for (auto It = VehicleActors.CreateIterator(); It; ++It)
+    {
+        if (!It->Value || It->Value->IsActorBeingDestroyed())
+        {
+            Vehicles.Remove(It->Key);
+            It.RemoveCurrent();
+        }
     }
 }
 
@@ -117,6 +146,31 @@ void USimulationSubsystem::TickIncidentScheduler()
     }
 }
 
+void USimulationSubsystem::TickVisibility()
+{
+    // Advance flicker state on all lights
+    for (auto& [Index, Floor] : Floors)
+    {
+        if (Floor) Floor->TickLights(CurrentTick, SimRNG);
+    }
+
+    // Promote pending incidents that have become visible
+    for (auto& [ID, Incident] : Incidents)
+    {
+        if (Incident.State != EIncidentState::Pending) continue;
+
+        AParkingFloor* Floor = GetFloor(Incident.FloorIndex);
+        if (!Floor) continue;
+
+        if (Incident.TileID >= 0 &&
+            Floor->GetVisibilityGrid().IsTileVisible(Incident.TileID))
+        {
+            Incident.State = EIncidentState::Active;
+            GetEventBus()->OnIncidentVisible.Broadcast(Incident);
+        }
+    }
+}
+
 void USimulationSubsystem::TickStaff()
 {
     // Stub — StaffAgent FSM tick, fatigue/loyalty decay
@@ -134,13 +188,14 @@ void USimulationSubsystem::TickIntegrity()
 
 void USimulationSubsystem::TickEconomy()
 {
-    // Delegated to UEconomySubsystem via EventBus revenue events
-    // Revenue accumulates per parked vehicle — handled in TickVehicles
+    if (UEconomySubsystem* Economy = GetWorld()->GetSubsystem<UEconomySubsystem>())
+        Economy->Tick(CurrentTick);
 }
 
 void USimulationSubsystem::TickCity()
 {
-    // Delegated to UCitySubsystem
+    if (UCitySubsystem* City = GetWorld()->GetSubsystem<UCitySubsystem>())
+        City->Tick(CurrentTick);
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -152,7 +207,7 @@ void USimulationSubsystem::FirePendingEvents()
     while (EventQueue.Num() > 0 && EventQueue.HeapTop().ScheduledTick <= CurrentTick)
     {
         FPendingEvent E;
-        EventQueue.HeapPop(E, FPendingEvent());
+        EventQueue.HeapPop(E);
 
         FIncidentData NewIncident;
         NewIncident.ID          = NextIncidentID++;
@@ -181,7 +236,7 @@ void USimulationSubsystem::ScheduleIncident(
     E.TileID        = TileID;
     E.Severity      = Severity;
 
-    EventQueue.HeapPush(E, FPendingEvent());
+    EventQueue.HeapPush(E);
 }
 
 void USimulationSubsystem::ScheduleNextEvent(EIncidentType Type, int32 FloorIndex)
@@ -210,7 +265,7 @@ void USimulationSubsystem::ScheduleNextEvent(EIncidentType Type, int32 FloorInde
     Next.TileID        = -1;  // Assigned at fire time based on floor state
     Next.Severity      = SimRNG.FRandRange(0.3f, 1.0f);
 
-    EventQueue.HeapPush(Next, FPendingEvent());
+    EventQueue.HeapPush(Next);
 }
 
 float USimulationSubsystem::SamplePoissonInterval(float Lambda)
@@ -237,20 +292,28 @@ void USimulationSubsystem::ResolveIncident(uint32 IncidentID, int32 BranchIndex)
 // REGISTRIES
 // ─────────────────────────────────────────────────────────────────
 
-void USimulationSubsystem::RegisterVehicle(uint32 VehicleID, FVehicleData& Data)
+void USimulationSubsystem::RegisterVehicle(uint32 VehicleID, FVehicleData& Data, AVehicleAgent* Actor)
 {
     Data.ID = VehicleID;
     Vehicles.Add(VehicleID, Data);
+    VehicleActors.Add(VehicleID, Actor);
 }
 
 void USimulationSubsystem::UnregisterVehicle(uint32 VehicleID)
 {
     Vehicles.Remove(VehicleID);
+    VehicleActors.Remove(VehicleID);
 }
 
 FVehicleData* USimulationSubsystem::GetVehicle(uint32 VehicleID)
 {
     return Vehicles.Find(VehicleID);
+}
+
+AVehicleAgent* USimulationSubsystem::GetVehicleActor(uint32 VehicleID)
+{
+    AVehicleAgent** Found = VehicleActors.Find(VehicleID);
+    return Found ? *Found : nullptr;
 }
 
 void USimulationSubsystem::RegisterFloor(int32 FloorIndex, AParkingFloor* Floor)

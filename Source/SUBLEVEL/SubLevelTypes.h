@@ -1,7 +1,54 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Containers/BitArray.h"
 #include "SubLevelTypes.generated.h"
+
+// ─────────────────────────────────────────────────────────────────
+// FLOW FIELD
+// A 2D direction grid computed per destination tile via Dijkstra.
+// Vehicles sample their tile's direction vector each SimTick.
+// One FFlowField exists per active destination on a given floor.
+// ─────────────────────────────────────────────────────────────────
+
+struct FFlowField
+{
+    uint32             DestinationTileID = 0;
+    TArray<FVector2D>  Directions;      // Normalized direction per tile (size = GridWidth * GridHeight)
+    TArray<float>      CostField;       // Dijkstra cost from destination, same indexing
+    bool               bDirty = true;   // Recompute needed (grid topology changed)
+    bool               bReady = false;  // Worker task completed — safe to sample
+};
+
+// ─────────────────────────────────────────────────────────────────
+// VISIBILITY GRID
+// Per-floor bitmask of camera and light coverage.
+// A tile is fully visible only if BOTH bits are set.
+// ─────────────────────────────────────────────────────────────────
+
+struct FVisibilityGrid
+{
+    TBitArray<> CameraCoverage;
+    TBitArray<> LightCoverage;
+
+    void Initialize(int32 TileCount)
+    {
+        CameraCoverage.Init(false, TileCount);
+        LightCoverage.Init(false, TileCount);
+    }
+
+    bool IsTileVisible(int32 TileIdx) const
+    {
+        return CameraCoverage.IsValidIndex(TileIdx) && LightCoverage.IsValidIndex(TileIdx)
+            && CameraCoverage[TileIdx] && LightCoverage[TileIdx];
+    }
+
+    bool IsTilePartiallyVisible(int32 TileIdx) const
+    {
+        return (CameraCoverage.IsValidIndex(TileIdx) && CameraCoverage[TileIdx])
+            || (LightCoverage.IsValidIndex(TileIdx)  && LightCoverage[TileIdx]);
+    }
+};
 
 // ─────────────────────────────────────────────────────────────────
 // TILE
@@ -48,6 +95,26 @@ struct FFloorTile
 
     bool IsStall()    const { return Type >= ETileType::Stall_Standard && Type <= ETileType::Stall_Disabled; }
     bool IsPassable() const { return !bBlocked && Type != ETileType::Wall && Type != ETileType::Empty; }
+};
+
+// ─────────────────────────────────────────────────────────────────
+// VISIBILITY — Camera and Light states
+// ─────────────────────────────────────────────────────────────────
+
+UENUM(BlueprintType)
+enum class ECameraState : uint8
+{
+    Active,     // Full cone coverage
+    Degraded,   // Reduced cone angle (upgrade needed)
+    Offline     // No coverage — power loss, vandalism, or sabotage
+};
+
+UENUM(BlueprintType)
+enum class ELightState : uint8
+{
+    Normal,      // Full radius coverage
+    Flickering,  // Coverage is probabilistic per SimTick (50% chance each tick)
+    Off          // No coverage — needs maintenance
 };
 
 // ─────────────────────────────────────────────────────────────────
@@ -153,9 +220,16 @@ struct FStaffData
     int32               CurrentTileID = -1;
     TArray<FStaffTask>  TaskQueue;
 
-    bool IsOnShift()         const { return true; }  // Expand with shift schedule later
-    bool IsFatigued()        const { return Fatigue >= 0.8f; }
-    float ResolutionSpeed()  const;  // Implemented in .cpp — factors Role + Trait + Fatigue
+    bool IsOnShift()  const { return true; }
+    bool IsFatigued() const { return Fatigue >= 0.8f; }
+
+    float ResolutionSpeed() const
+    {
+        float Speed = 1.0f;
+        if (Trait == EStaffTrait::Experienced) Speed *= 1.4f;
+        if (Trait == EStaffTrait::Slow)        Speed *= 0.8f;
+        return Speed * FMath::Lerp(1.0f, 0.5f, Fatigue);
+    }
 };
 
 // ─────────────────────────────────────────────────────────────────
