@@ -82,6 +82,7 @@ private:
 
     void TickVehicles();
     void TickIncidentScheduler();
+    void TickVisibility();  // Processes light flicker; promotes visible pending incidents
     void TickStaff();
     void TickIntegrity();
     void TickEconomy();     // Delegates to UEconomySubsystem

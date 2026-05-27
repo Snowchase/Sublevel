@@ -98,6 +98,26 @@ struct FFloorTile
 };
 
 // ─────────────────────────────────────────────────────────────────
+// VISIBILITY — Camera and Light states
+// ─────────────────────────────────────────────────────────────────
+
+UENUM(BlueprintType)
+enum class ECameraState : uint8
+{
+    Active,     // Full cone coverage
+    Degraded,   // Reduced cone angle (upgrade needed)
+    Offline     // No coverage — power loss, vandalism, or sabotage
+};
+
+UENUM(BlueprintType)
+enum class ELightState : uint8
+{
+    Normal,      // Full radius coverage
+    Flickering,  // Coverage is probabilistic per SimTick (50% chance each tick)
+    Off          // No coverage — needs maintenance
+};
+
+// ─────────────────────────────────────────────────────────────────
 // VEHICLE
 // ─────────────────────────────────────────────────────────────────
 

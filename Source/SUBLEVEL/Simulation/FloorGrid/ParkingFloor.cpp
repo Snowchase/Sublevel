@@ -1,4 +1,6 @@
 #include "Simulation/FloorGrid/ParkingFloor.h"
+#include "Simulation/FloorGrid/SecurityCamera.h"
+#include "Simulation/FloorGrid/LightFixture.h"
 #include "Simulation/FlowField/FlowField.h"
 #include "Subsystems/SimulationSubsystem.h"
 #include "Subsystems/EventBusSubsystem.h"
@@ -168,6 +170,59 @@ int32 AParkingFloor::GetVehicleCountOnTile(int32 TileIdx) const
 {
     const TSet<uint32>* Set = TileOccupants.Find(TileIdx);
     return Set ? Set->Num() : 0;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// VISIBILITY — Registration and Rebuild
+// ─────────────────────────────────────────────────────────────────
+
+void AParkingFloor::RegisterCamera(ASecurityCamera* Camera)
+{
+    if (Camera && !RegisteredCameras.Contains(Camera))
+        RegisteredCameras.Add(Camera);
+}
+
+void AParkingFloor::RegisterLight(ALightFixture* Light)
+{
+    if (Light && !RegisteredLights.Contains(Light))
+        RegisteredLights.Add(Light);
+}
+
+void AParkingFloor::RebuildVisibility()
+{
+    const int32 TileCount = Tiles.Num();
+    if (TileCount == 0) return;
+
+    VisibilityGrid.CameraCoverage.Init(false, TileCount);
+    VisibilityGrid.LightCoverage.Init(false, TileCount);
+
+    for (const ASecurityCamera* Cam : RegisteredCameras)
+    {
+        if (!Cam || Cam->GetCameraState() == ECameraState::Offline) continue;
+        for (int32 TileIdx : Cam->GetCoveredTiles())
+        {
+            if (VisibilityGrid.CameraCoverage.IsValidIndex(TileIdx))
+                VisibilityGrid.CameraCoverage[TileIdx] = true;
+        }
+    }
+
+    for (const ALightFixture* Light : RegisteredLights)
+    {
+        if (!Light || Light->GetLightState() == ELightState::Off) continue;
+        for (int32 TileIdx : Light->GetCoveredTiles())
+        {
+            if (VisibilityGrid.LightCoverage.IsValidIndex(TileIdx))
+                VisibilityGrid.LightCoverage[TileIdx] = true;
+        }
+    }
+}
+
+void AParkingFloor::TickLights(uint64 CurrentTick, FRandomStream& RNG)
+{
+    for (ALightFixture* Light : RegisteredLights)
+    {
+        if (Light) Light->SimTick(CurrentTick, RNG);
+    }
 }
 
 const TSet<uint32>* AParkingFloor::GetVehiclesOnTile(int32 TileIdx) const

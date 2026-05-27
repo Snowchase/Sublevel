@@ -5,6 +5,9 @@
 #include "SubLevelTypes.h"
 #include "ParkingFloor.generated.h"
 
+class ASecurityCamera;
+class ALightFixture;
+
 UCLASS()
 class SUBLEVEL_API AParkingFloor : public AActor
 {
@@ -50,6 +53,17 @@ public:
     FVisibilityGrid&       GetVisibilityGrid()       { return VisibilityGrid; }
     const FVisibilityGrid& GetVisibilityGrid() const { return VisibilityGrid; }
 
+    // Called by ASecurityCamera / ALightFixture in BeginPlay
+    void RegisterCamera(ASecurityCamera* Camera);
+    void RegisterLight(ALightFixture* Light);
+
+    // Rebuilds CameraCoverage and LightCoverage bitmasks from all registered sources.
+    // Called whenever any camera/light changes state or coverage geometry changes.
+    void RebuildVisibility();
+
+    // Called by SimulationSubsystem::TickVisibility each SimTick — processes flicker.
+    void TickLights(uint64 CurrentTick, FRandomStream& RNG);
+
     // ── Structural Integrity ─────────────────────────────────────
     void  TickIntegrity();
     float GetStructuralIntegrity() const  { return StructuralIntegrity; }
@@ -78,6 +92,10 @@ private:
     bool  bWaterTableRisk     = false;
 
     FVisibilityGrid VisibilityGrid;
+
+    // §8 — Visibility sources (UPROPERTY keeps GC from collecting them)
+    UPROPERTY() TArray<ASecurityCamera*> RegisteredCameras;
+    UPROPERTY() TArray<ALightFixture*>   RegisteredLights;
 
     TMap<uint32, FFlowField>    FlowFieldsByDest;    // DestTileID -> field
     TMap<int32,  TSet<uint32>>  TileOccupants;       // TileIdx -> set of VehicleIDs

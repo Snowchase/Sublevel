@@ -72,6 +72,7 @@ void USimulationSubsystem::SimTick()
     // Order matters — city context affects demand before vehicles tick
     TickCity();
     TickIncidentScheduler();
+    TickVisibility();
     TickVehicles();
     TickStaff();
     TickIntegrity();
@@ -141,6 +142,31 @@ void USimulationSubsystem::TickIncidentScheduler()
                 Incident.State = EIncidentState::Expired;
                 GetEventBus()->OnIncidentExpired.Broadcast(ID);
             }
+        }
+    }
+}
+
+void USimulationSubsystem::TickVisibility()
+{
+    // Advance flicker state on all lights
+    for (auto& [Index, Floor] : Floors)
+    {
+        if (Floor) Floor->TickLights(CurrentTick, SimRNG);
+    }
+
+    // Promote pending incidents that have become visible
+    for (auto& [ID, Incident] : Incidents)
+    {
+        if (Incident.State != EIncidentState::Pending) continue;
+
+        AParkingFloor* Floor = GetFloor(Incident.FloorIndex);
+        if (!Floor) continue;
+
+        if (Incident.TileID >= 0 &&
+            Floor->GetVisibilityGrid().IsTileVisible(Incident.TileID))
+        {
+            Incident.State = EIncidentState::Active;
+            GetEventBus()->OnIncidentVisible.Broadcast(Incident);
         }
     }
 }
