@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SUBLEVEL — §2 Architecture Scaffold</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,700;1,400&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+
+  :root {
+    --bg:      #0d0f0e; --bg2: #131614; --bg3: #1a1d1b;
+    --border:  #252927; --border2: #2f3330;
+    --green:   #3ddc84; --green-dim: #1f6b42;
+    --amber:   #f5a623; --red: #e05252; --blue: #5b9cf6;
+    --teal:    #3dd6dc; --purple: #c792ea;
+    --text:    #b8c4bc; --text-dim: #5a6660; --text-hi: #e8f0ec;
+    --code-bg: #080a09;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'IBM Plex Sans', sans-serif; font-size: 14px; line-height: 1.7; }
+
+  header { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 32px 56px; }
+  .hdr-eyebrow { font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 4px; color: var(--green); text-transform: uppercase; margin-bottom: 8px; }
+  .hdr-title { font-family: 'IBM Plex Mono', monospace; font-size: 28px; font-weight: 700; color: var(--text-hi); letter-spacing: -0.5px; }
+  .hdr-sub { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+
+  main { max-width: 1100px; margin: 0 auto; padding: 48px 56px 100px; }
+
+  /* SECTION */
+  .section { margin-bottom: 60px; }
+  .section-title { font-family: 'IBM Plex Mono', monospace; font-size: 16px; font-weight: 700; color: var(--text-hi); letter-spacing: 1px; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+  .section-title::before { content: ''; display: block; width: 20px; height: 2px; background: var(--green); }
+
+  /* FOLDER TREE */
+  .tree { background: var(--code-bg); border: 1px solid var(--border); padding: 28px 32px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 2; border-radius: 2px; overflow-x: auto; }
+  .t-dir  { color: var(--blue); }
+  .t-h    { color: var(--teal); }
+  .t-cpp  { color: var(--green); }
+  .t-cs   { color: var(--amber); }
+  .t-json { color: var(--purple); }
+  .t-py   { color: var(--amber); }
+  .t-dim  { color: var(--text-dim); }
+  .t-note { color: var(--text-dim); font-style: italic; margin-left: 8px; }
+
+  /* FILE CARDS */
+  .file-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
+  .file-card { background: var(--bg2); border: 1px solid var(--border); padding: 16px 18px; border-radius: 2px; }
+  .file-card.critical { border-left: 3px solid var(--green); }
+  .file-card.important { border-left: 3px solid var(--blue); }
+  .file-card.data { border-left: 3px solid var(--amber); }
+  .fc-name { font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 700; color: var(--text-hi); margin-bottom: 4px; }
+  .fc-desc { font-size: 12px; color: var(--text-dim); line-height: 1.6; }
+  .fc-tags { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .tag { font-family: 'IBM Plex Mono', monospace; font-size: 10px; padding: 2px 7px; border-radius: 2px; }
+  .tag-cpp  { background: rgba(91,156,246,0.12); color: var(--blue); }
+  .tag-ue5  { background: rgba(61,220,132,0.1); color: var(--green); }
+  .tag-data { background: rgba(61,214,220,0.1); color: var(--teal); }
+  .tag-warn { background: rgba(224,82,82,0.1); color: var(--red); }
+
+  /* STARTUP SEQUENCE */
+  .startup-steps { display: flex; flex-direction: column; gap: 0; }
+  .step { display: grid; grid-template-columns: 40px 1fr; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--border); align-items: start; }
+  .step:last-child { border-bottom: none; }
+  .step-num { font-family: 'IBM Plex Mono', monospace; font-size: 20px; font-weight: 700; color: var(--border2); line-height: 1.2; }
+  .step-body h4 { font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: var(--text-hi); margin-bottom: 4px; }
+  .step-body p { font-size: 13px; color: var(--text-dim); line-height: 1.6; }
+  .step-body code { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--teal); background: var(--bg3); padding: 1px 5px; border-radius: 2px; }
+
+  /* DEPENDENCY TABLE */
+  .dep-table { width: 100%; border-collapse: collapse; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+  .dep-table th { text-align: left; font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--text-dim); padding: 8px 12px; border-bottom: 1px solid var(--border2); background: var(--bg2); }
+  .dep-table td { padding: 11px 12px; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: top; }
+  .dep-table tr:last-child td { border-bottom: none; }
+  .dep-table td:first-child { color: var(--text-hi); }
+
+  /* CALLOUT */
+  .callout { border-radius: 2px; padding: 14px 18px; margin-bottom: 16px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+  .callout-label { font-size: 9px; letter-spacing: 3px; text-transform: uppercase; font-weight: 700; margin-bottom: 6px; }
+  .callout.warn  { background: rgba(224,82,82,0.06); border: 1px solid rgba(224,82,82,0.2); }
+  .callout.warn .callout-label { color: var(--red); }
+  .callout.warn p { color: #f0a0a0; line-height: 1.7; }
+  .callout.note  { background: rgba(61,220,132,0.05); border: 1px solid rgba(61,220,132,0.15); }
+  .callout.note .callout-label { color: var(--green); }
+  .callout.note p { color: var(--text); line-height: 1.7; }
+
+  /* NEXT STEPS */
+  .next-list { list-style: none; }
+  .next-list li { display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text); align-items: flex-start; }
+  .next-list li:last-child { border-bottom: none; }
+  .next-icon { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--green); background: rgba(61,220,132,0.08); padding: 3px 8px; border-radius: 2px; white-space: nowrap; margin-top: 1px; }
+  .next-body strong { display: block; color: var(--text-hi); font-weight: 500; margin-bottom: 2px; }
+  .next-body span { color: var(--text-dim); font-size: 12px; }
+
+  footer { border-top: 1px solid var(--border); padding: 20px 56px; font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text-dim); letter-spacing: 2px; display: flex; justify-content: space-between; }
+
+  @media (max-width: 700px) {
+    header, main, footer { padding-left: 20px; padding-right: 20px; }
+    .file-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hdr-eyebrow">§ 02 — Architecture · Implementation Scaffold</div>
+  <div class="hdr-title">SUBLEVEL — Project Structure & Core Systems</div>
+  <div class="hdr-sub">UE5.4 · Visual Studio 2022 · C++ · Files ready to drop into Source/SUBLEVEL/</div>
+</header>
+
+<main>
+
+  <!-- FOLDER STRUCTURE -->
+  <div class="section">
+    <div class="section-title">Project Folder Structure</div>
+    <div class="tree">
+<span class="t-dir">SUBLEVEL/</span>
+├── <span class="t-cs">SUBLEVEL.uproject</span>
+├── <span class="t-cs">SUBLEVEL.Build.cs</span>         <span class="t-note">← Module deps, all engine includes</span>
+│
+├── <span class="t-dir">Source/SUBLEVEL/</span>
+│   ├── <span class="t-h">SubLevelTypes.h</span>          <span class="t-note">← ALL shared enums & structs (no .cpp needed)</span>
+│   │
+│   ├── <span class="t-dir">Framework/</span>
+│   │   ├── <span class="t-h">SubLevelFramework.h</span>   <span class="t-note">← GameMode, GameState, PlayerController headers</span>
+│   │   └── <span class="t-cpp">SubLevelFramework.cpp</span>
+│   │
+│   ├── <span class="t-dir">Subsystems/</span>
+│   │   ├── <span class="t-h">EventBusSubsystem.h</span>   <span class="t-note">← ALL delegates declared here</span>
+│   │   ├── <span class="t-cpp">EventBusSubsystem.cpp</span>
+│   │   ├── <span class="t-h">SimulationSubsystem.h</span> <span class="t-note">← Master 20Hz SimTick, vehicle registry</span>
+│   │   ├── <span class="t-cpp">SimulationSubsystem.cpp</span>
+│   │   ├── <span class="t-h">CitySubsystem.h</span>       <span class="t-note">← Demand curve, city events (§7 — next)</span>
+│   │   ├── <span class="t-cpp">CitySubsystem.cpp</span>
+│   │   ├── <span class="t-h">EconomySubsystem.h</span>    <span class="t-note">← Revenue, loans, faction scoring (§10)</span>
+│   │   └── <span class="t-cpp">EconomySubsystem.cpp</span>
+│   │
+│   ├── <span class="t-dir">Simulation/</span>
+│   │   ├── <span class="t-dir">FloorGrid/</span>
+│   │   │   ├── <span class="t-h">ParkingFloor.h</span>     <span class="t-note">← Grid owner, flow fields, integrity tick (§4)</span>
+│   │   │   └── <span class="t-cpp">ParkingFloor.cpp</span>
+│   │   ├── <span class="t-dir">Vehicle/</span>
+│   │   │   ├── <span class="t-h">VehicleAgent.h</span>     <span class="t-note">← AActor, FSM, movement (§4)</span>
+│   │   │   └── <span class="t-cpp">VehicleAgent.cpp</span>
+│   │   ├── <span class="t-dir">FlowField/</span>
+│   │   │   ├── <span class="t-h">FlowField.h</span>        <span class="t-note">← FFlowField struct + Dijkstra worker (§4)</span>
+│   │   │   └── <span class="t-cpp">FlowField.cpp</span>
+│   │   └── <span class="t-dir">Incident/</span>
+│   │       ├── <span class="t-h">IncidentLoader.h</span>   <span class="t-note">← Loads IncidentTypes.json at startup</span>
+│   │       └── <span class="t-cpp">IncidentLoader.cpp</span>
+│   │
+│   ├── <span class="t-dir">Staff/</span>
+│   │   ├── <span class="t-h">StaffAgent.h</span>           <span class="t-note">← AActor, task queue, fatigue tick (§6)</span>
+│   │   └── <span class="t-cpp">StaffAgent.cpp</span>
+│   │
+│   ├── <span class="t-dir">UI/</span>
+│   │   ├── <span class="t-h">HUDWidget.h</span>            <span class="t-note">← Root UMG widget (§12)</span>
+│   │   ├── <span class="t-h">AlertStackWidget.h</span>     <span class="t-note">← Incident cards + decision buttons</span>
+│   │   ├── <span class="t-h">FloorSwitcherWidget.h</span>  <span class="t-note">← B1–B5 tabs</span>
+│   │   └── <span class="t-h">CCTVWidget.h</span>           <span class="t-note">← Tab-mode camera feed panel</span>
+│   │
+│   └── <span class="t-dir">Persistence/</span>
+│       ├── <span class="t-h">SaveSystem.h</span>           <span class="t-note">← JSON snapshot + RNG state (§14)</span>
+│       └── <span class="t-cpp">SaveSystem.cpp</span>
+│
+├── <span class="t-dir">Content/</span>                        <span class="t-note">← UE5 assets (meshes, materials, BPs)</span>
+├── <span class="t-dir">Config/</span>                         <span class="t-note">← DefaultEngine.ini, DefaultInput.ini</span>
+│
+├── <span class="t-dir">Data/</span>                            <span class="t-note">← JSON authored by Python tools</span>
+│   ├── <span class="t-json">VehicleTypes.json</span>
+│   ├── <span class="t-json">IncidentTypes.json</span>
+│   ├── <span class="t-json">CityEvents.json</span>
+│   └── <span class="t-json">VehicleArrivals.json</span>          <span class="t-note">← Demand curve table</span>
+│
+└── <span class="t-dir">Tools/</span>                           <span class="t-note">← Python offline tooling</span>
+    ├── <span class="t-py">demand_curve.py</span>              <span class="t-note">← Generates VehicleArrivals.json</span>
+    ├── <span class="t-py">balance_economy.py</span>           <span class="t-note">← Revenue / loan tuning</span>
+    └── <span class="t-py">sim_harness.py</span>               <span class="t-note">← Headless sim test runner</span>
+    </div>
+  </div>
+
+  <!-- FILES PRODUCED -->
+  <div class="section">
+    <div class="section-title">Files Scaffolded in This Pass</div>
+    <div class="file-grid">
+      <div class="file-card critical">
+        <div class="fc-name">SubLevelTypes.h</div>
+        <div class="fc-desc">All shared enums and structs. ETileType, EVehicleState, EStaffRole, EIncidentType, FFactionScores, FCityEventData. Header-only — no .cpp needed. Every other file includes this.</div>
+        <div class="fc-tags"><span class="tag tag-cpp">C++</span><span class="tag tag-ue5">USTRUCT</span></div>
+      </div>
+      <div class="file-card critical">
+        <div class="fc-name">EventBusSubsystem.h / .cpp</div>
+        <div class="fc-desc">All 24 multicast delegates declared. Central pub/sub backbone — the only way modules communicate. Static Get() helper for easy access anywhere.</div>
+        <div class="fc-tags"><span class="tag tag-ue5">GameInstanceSubsystem</span><span class="tag tag-cpp">C++</span></div>
+      </div>
+      <div class="file-card critical">
+        <div class="fc-name">SimulationSubsystem.h / .cpp</div>
+        <div class="fc-desc">Master 20Hz SimTick via FTimerManager. Vehicle registry, incident scheduler (Poisson, min-heap), floor registry, seeded RNG. All six tick phases stubbed.</div>
+        <div class="fc-tags"><span class="tag tag-ue5">WorldSubsystem</span><span class="tag tag-cpp">C++</span></div>
+      </div>
+      <div class="file-card important">
+        <div class="fc-name">SubLevelFramework.h / .cpp</div>
+        <div class="fc-desc">GameMode (seed generation, subsystem init), GameState (floor state, faction scores), PlayerController (90° ortho camera, Enhanced Input, floor/mode switching, CCTV cycling).</div>
+        <div class="fc-tags"><span class="tag tag-ue5">UE5 Framework</span><span class="tag tag-cpp">C++</span></div>
+      </div>
+      <div class="file-card data">
+        <div class="fc-name">SUBLEVEL.Build.cs</div>
+        <div class="fc-desc">All module dependencies locked. Core, CoreUObject, Engine, EnhancedInput, UMG, Json, JsonUtilities, SQLiteCore. Ready to compile.</div>
+        <div class="fc-tags"><span class="tag tag-ue5">UBT</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- STARTUP SEQUENCE -->
+  <div class="section">
+    <div class="section-title">Startup & Initialization Sequence</div>
+    <div class="startup-steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h4>UGameInstance initializes subsystems</h4>
+          <p><code>UEventBusSubsystem</code> comes up first (declared as dependency by SimulationSubsystem). No state yet — just delegate containers ready for subscription.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h4>USimulationSubsystem initializes</h4>
+          <p>Registers its <code>SimTick</code> timer at 20Hz. RNG not seeded yet — timer fires but tick is a no-op until seed is set by GameMode.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h4>ASubLevelGameMode::InitGame fires</h4>
+          <p>Generates or loads seed. Calls <code>Sim->InitializeRNG(Seed)</code>. Stores seed in <code>ASubLevelGameState</code>. All subsequent RNG draws are deterministic from this point.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <h4>AParkingFloor actors register themselves</h4>
+          <p>Each floor calls <code>Sim->RegisterFloor(Index, this)</code> in <code>BeginPlay</code>. B1 pre-built — grid populated with initial layout. B2–B5 empty, flagged locked.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">5</div>
+        <div class="step-body">
+          <h4>Incident scheduler seeds initial event queue</h4>
+          <p>One <code>FPendingEvent</code> per incident type per unlocked floor is pushed to the min-heap. Each draws its first interval from the Poisson sampler.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">6</div>
+        <div class="step-body">
+          <h4>ASubLevelGameMode::StartPlay — simulation live</h4>
+          <p>SimTick is now fully operational. Vehicles begin spawning via <code>UCitySubsystem</code> demand curve. HUD subscribes to EventBus delegates. Player is in control.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- INTER-SYSTEM COMMUNICATION -->
+  <div class="section">
+    <div class="section-title">Inter-System Communication Map</div>
+    <div class="callout note">
+      <div class="callout-label">Rule</div>
+      <p>No system holds a reference to another system. All communication is via <code>UEventBusSubsystem</code> delegates. If you find yourself doing <code>GetSubsystem&lt;UCitySubsystem&gt;()</code> inside <code>SimulationSubsystem.cpp</code>, stop — broadcast an event instead.</p>
+    </div>
+    <table class="dep-table">
+      <thead><tr><th>Publisher</th><th>Event</th><th>Subscribers</th></tr></thead>
+      <tbody>
+        <tr><td>SimulationSubsystem</td><td>OnIncidentSpawned</td><td>UI AlertStack, AudioSubsystem, VisibilitySystem</td></tr>
+        <tr><td>SimulationSubsystem</td><td>OnDecisionMade</td><td>EconomySubsystem (faction delta), UI (close decision card)</td></tr>
+        <tr><td>SimulationSubsystem</td><td>OnVehicleParked</td><td>EconomySubsystem (start revenue accumulation)</td></tr>
+        <tr><td>SimulationSubsystem</td><td>OnVehicleExited</td><td>EconomySubsystem (finalize payment), UI (stall free)</td></tr>
+        <tr><td>SimulationSubsystem</td><td>OnIntegrityChanged</td><td>UI FloorSwitcher (integrity bar), GameState</td></tr>
+        <tr><td>SimulationSubsystem</td><td>OnFloorPowerLost</td><td>VisibilitySystem, AudioSubsystem, UI</td></tr>
+        <tr><td>SimulationSubsystem</td><td>OnStaffFatigued</td><td>UI (behavioral cue only — no number shown)</td></tr>
+        <tr><td>CitySubsystem</td><td>OnCityEventStarted</td><td>SimulationSubsystem (lambda update), EconomySubsystem (surge)</td></tr>
+        <tr><td>EconomySubsystem</td><td>OnFactionChanged</td><td>CitySubsystem (modifies event spawn weights), UI</td></tr>
+        <tr><td>PlayerController</td><td>OnDecisionMade (broadcast)</td><td>SimulationSubsystem (ResolveIncident called)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- NEXT STEPS -->
+  <div class="section">
+    <div class="section-title">Build Order — What Comes Next</div>
+    <ul class="next-list">
+      <li>
+        <span class="next-icon">NEXT §4</span>
+        <div class="next-body">
+          <strong>AParkingFloor + FFlowField + AVehicleAgent</strong>
+          <span>The grid model, Dijkstra-based flow field computation on a Task Graph worker, and the vehicle FSM. Hardest system — everything depends on it.</span>
+        </div>
+      </li>
+      <li>
+        <span class="next-icon">THEN §8</span>
+        <div class="next-body">
+          <strong>FVisibilityGrid + ASecurityCamera + ALightFixture</strong>
+          <span>Bitmask coverage zones, failure states, incident detection gating. Closely tied to the floor grid — implement right after.</span>
+        </div>
+      </li>
+      <li>
+        <span class="next-icon">THEN §5</span>
+        <div class="next-body">
+          <strong>IncidentLoader + Decision Branch system</strong>
+          <span>Load IncidentTypes.json, wire decision branches to EventBus, test full incident lifecycle in isolation before UI exists.</span>
+        </div>
+      </li>
+      <li>
+        <span class="next-icon">THEN §12</span>
+        <div class="next-body">
+          <strong>HUD scaffolding — AlertStack + FloorSwitcher</strong>
+          <span>Once incidents fire and floor integrity ticks, the UI has real data to display. Build the HUD skeleton before staff or economy.</span>
+        </div>
+      </li>
+      <li>
+        <span class="next-icon">PARALLEL</span>
+        <div class="next-body">
+          <strong>Python Tools — demand_curve.py + sim_harness.py</strong>
+          <span>Headless sim harness lets you test the incident scheduler and vehicle counts without running the full UE5 editor. Worth building early.</span>
+        </div>
+      </li>
+    </ul>
+  </div>
+
+  <!-- WARNINGS -->
+  <div class="section">
+    <div class="section-title">Known UE5 Pitfalls to Watch</div>
+    <div class="callout warn">
+      <div class="callout-label">⚠ Flow Field Thread Safety</div>
+      <p>Flow field recomputation runs on a Task Graph worker. Gate the vehicle movement phase of SimTick behind <code>FGraphEventRef</code> task completion. Never let a vehicle sample a partially-written flow field.</p>
+    </div>
+    <div class="callout warn">
+      <div class="callout-label">⚠ UPROPERTY on TMap</div>
+      <p><code>TMap&lt;uint32, FVehicleData&gt;</code> in SimulationSubsystem is not marked UPROPERTY — intentional, since the keys are uint32 which UE5's reflection doesn't handle cleanly. Do not add UPROPERTY to these maps. Serialize them manually in the save system.</p>
+    </div>
+    <div class="callout warn">
+      <div class="callout-label">⚠ UWorldSubsystem Lifetime</div>
+      <p>SimulationSubsystem and CitySubsystem are UWorldSubsystem — they live and die with the World. EventBusSubsystem is UGameInstanceSubsystem — it persists across level loads. Don't subscribe to EventBus from a WorldSubsystem's constructor; subscribe in Initialize().</p>
+    </div>
+  </div>
+
+</main>
+
+<footer>
+  <span>SUBLEVEL · §2 ARCHITECTURE SCAFFOLD · REV 1.0</span>
+  <span>5 FILES READY · VISUAL STUDIO 2022 · UE5.4</span>
+</footer>
+
+</body>
+</html>
