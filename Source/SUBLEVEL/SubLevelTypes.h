@@ -1,7 +1,54 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Containers/BitArray.h"
 #include "SubLevelTypes.generated.h"
+
+// ─────────────────────────────────────────────────────────────────
+// FLOW FIELD
+// A 2D direction grid computed per destination tile via Dijkstra.
+// Vehicles sample their tile's direction vector each SimTick.
+// One FFlowField exists per active destination on a given floor.
+// ─────────────────────────────────────────────────────────────────
+
+struct FFlowField
+{
+    uint32             DestinationTileID = 0;
+    TArray<FVector2D>  Directions;      // Normalized direction per tile (size = GridWidth * GridHeight)
+    TArray<float>      CostField;       // Dijkstra cost from destination, same indexing
+    bool               bDirty = true;   // Recompute needed (grid topology changed)
+    bool               bReady = false;  // Worker task completed — safe to sample
+};
+
+// ─────────────────────────────────────────────────────────────────
+// VISIBILITY GRID
+// Per-floor bitmask of camera and light coverage.
+// A tile is fully visible only if BOTH bits are set.
+// ─────────────────────────────────────────────────────────────────
+
+struct FVisibilityGrid
+{
+    TBitArray<> CameraCoverage;
+    TBitArray<> LightCoverage;
+
+    void Initialize(int32 TileCount)
+    {
+        CameraCoverage.Init(false, TileCount);
+        LightCoverage.Init(false, TileCount);
+    }
+
+    bool IsTileVisible(int32 TileIdx) const
+    {
+        return CameraCoverage.IsValidIndex(TileIdx) && LightCoverage.IsValidIndex(TileIdx)
+            && CameraCoverage[TileIdx] && LightCoverage[TileIdx];
+    }
+
+    bool IsTilePartiallyVisible(int32 TileIdx) const
+    {
+        return (CameraCoverage.IsValidIndex(TileIdx) && CameraCoverage[TileIdx])
+            || (LightCoverage.IsValidIndex(TileIdx)  && LightCoverage[TileIdx]);
+    }
+};
 
 // ─────────────────────────────────────────────────────────────────
 // TILE
