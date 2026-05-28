@@ -5,11 +5,11 @@ AStaffAgent::AStaffAgent()
     PrimaryActorTick.bCanEverTick = false;
 }
 
-void AStaffAgent::Initialize(uint32 InStaffID, EStaffRole Role, EStaffTrait Trait, int32 AssignedFloor)
+void AStaffAgent::Initialize(uint32 InStaffID, EStaffRole InRole, EStaffTrait InTrait, int32 AssignedFloor)
 {
     StaffData.ID           = InStaffID;
-    StaffData.Role         = Role;
-    StaffData.Trait        = Trait;
+    StaffData.Role         = InRole;
+    StaffData.Trait        = InTrait;
     StaffData.AssignedFloor = AssignedFloor;
     StaffData.Fatigue      = 0.f;
     StaffData.Loyalty      = 1.f;

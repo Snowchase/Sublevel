@@ -17,7 +17,7 @@ class SUBLEVEL_API AStaffAgent : public AActor
 public:
     AStaffAgent();
 
-    void Initialize(uint32 InStaffID, EStaffRole Role, EStaffTrait Trait, int32 AssignedFloor);
+    void Initialize(uint32 InStaffID, EStaffRole InRole, EStaffTrait InTrait, int32 AssignedFloor);
 
     // Called by USimulationSubsystem::TickStaff
     void SimTick(uint64 CurrentTick);
