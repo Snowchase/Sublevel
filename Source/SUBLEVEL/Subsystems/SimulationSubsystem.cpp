@@ -16,9 +16,6 @@ void USimulationSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
     Super::Initialize(Collection);
 
-    // EventBus must be initialized before SimulationSubsystem
-    Collection.InitializeDependency<UEventBusSubsystem>();
-
     GetWorld()->GetTimerManager().SetTimer(
         SimTickHandle,
         this,

@@ -34,6 +34,7 @@ private:
     float DailyAccumulator = 0.f;
 
     void SubscribeToEventBus();
-    void OnVehicleExited(uint32 VehicleID, float Revenue);
-    void OnDecisionMade(uint32 IncidentID, int32 BranchIndex);
+
+    UFUNCTION() void OnVehicleExited(uint32 VehicleID, float Revenue);
+    UFUNCTION() void OnDecisionMade(uint32 IncidentID, int32 BranchIndex);
 };
