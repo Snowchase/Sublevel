@@ -23,6 +23,10 @@ public:
     UFUNCTION(BlueprintCallable) float GetFactionScore(EFactionType Faction) const;
     void ApplyFactionDelta(EFactionType Faction, float Delta);
 
+    // §14 save/load — direct access to the full score block
+    const FFactionScores& GetFactionScoresRaw() const { return FactionScores; }
+    void SetFactionScoresRaw(const FFactionScores& InScores) { FactionScores = InScores; }
+
     // ── Economy snapshot (read by UI) ─────────────────────────────
     UPROPERTY(BlueprintReadOnly) float CurrentBalance   = 0.0f;
     UPROPERTY(BlueprintReadOnly) float DailyRevenue     = 0.0f;

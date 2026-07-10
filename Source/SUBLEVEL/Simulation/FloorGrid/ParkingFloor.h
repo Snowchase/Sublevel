@@ -7,6 +7,9 @@
 
 class ASecurityCamera;
 class ALightFixture;
+class UInstancedStaticMeshComponent;
+class UStaticMesh;
+class UMaterialInterface;
 
 UCLASS()
 class SUBLEVEL_API AParkingFloor : public AActor
@@ -19,6 +22,29 @@ public:
 
     // ── Grid Init ────────────────────────────────────────────────
     void InitializeGrid(int32 Width, int32 Height);
+
+    // Builds a simple functional lot: perimeter walls, entry/exit gates,
+    // lane corridors, and stall rows. Used for test maps with no hand-built
+    // layout. Runs automatically in BeginPlay when the grid is empty and
+    // bAutoGenerateTestLayout is set.
+    void GenerateDefaultLayout();
+
+    // Instanced-mesh tile visuals from engine basic shapes (test rendering).
+    void RebuildTileVisuals();
+
+    // ── Gates ────────────────────────────────────────────────────
+    int32 GetEntryGateTile() const { return EntryGateTile; }
+    int32 GetExitGateTile()  const { return ExitGateTile; }
+
+    // ── Test layout settings ─────────────────────────────────────
+    UPROPERTY(EditAnywhere, Category = "Floor|TestLayout")
+    bool bAutoGenerateTestLayout = true;
+
+    UPROPERTY(EditAnywhere, Category = "Floor|TestLayout", meta = (ClampMin = "8", ClampMax = "64"))
+    int32 DefaultGridWidth = 24;
+
+    UPROPERTY(EditAnywhere, Category = "Floor|TestLayout", meta = (ClampMin = "8", ClampMax = "64"))
+    int32 DefaultGridHeight = 16;
 
     // ── Tile Access ──────────────────────────────────────────────
     FFloorTile&       GetTile(int32 TileIdx);
@@ -48,6 +74,10 @@ public:
     void  RemoveVehicleFromTile(int32 TileIdx, uint32 VehicleID);
     int32 GetVehicleCountOnTile(int32 TileIdx) const;
     const TSet<uint32>* GetVehiclesOnTile(int32 TileIdx) const;
+
+    // Wipes the occupancy index and per-tile occupant/blockage flags.
+    // Used by save/load when all agents are destroyed at once.
+    void  ClearAllOccupants();
 
     // ── Visibility ───────────────────────────────────────────────
     FVisibilityGrid&       GetVisibilityGrid()       { return VisibilityGrid; }
@@ -86,6 +116,18 @@ private:
     int32              GridWidth  = 0;
     int32              GridHeight = 0;
     TArray<FFloorTile> Tiles;
+
+    int32 EntryGateTile = -1;
+    int32 ExitGateTile  = -1;
+
+    // ── Test visuals ─────────────────────────────────────────────
+    UPROPERTY() USceneComponent* SceneRoot = nullptr;
+    UPROPERTY() UStaticMesh* TilePlaneMesh = nullptr;
+    UPROPERTY() UStaticMesh* WallCubeMesh  = nullptr;
+    UPROPERTY() UMaterialInterface* TileBaseMaterial = nullptr;
+    UPROPERTY() TMap<uint8, UInstancedStaticMeshComponent*> TileVisualISMs;   // key = ETileType
+
+    UInstancedStaticMeshComponent* GetOrCreateISMForType(ETileType Type);
 
     float StructuralIntegrity = 1.0f;
     int32 ActiveCrackCount    = 0;
