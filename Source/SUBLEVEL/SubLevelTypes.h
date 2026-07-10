@@ -5,6 +5,19 @@
 #include "SubLevelTypes.generated.h"
 
 // ─────────────────────────────────────────────────────────────────
+// SIM CLOCK CONSTANTS
+// 20Hz sim tick. One in-game day = 14400 ticks (~12 real minutes).
+// One in-game hour = 600 ticks (30 real seconds).
+// ─────────────────────────────────────────────────────────────────
+
+namespace SubLevelSim
+{
+    constexpr float  TickInterval = 0.05f;   // seconds per SimTick (20Hz)
+    constexpr uint64 TicksPerDay  = 14400;
+    constexpr uint64 TicksPerHour = TicksPerDay / 24;  // 600
+}
+
+// ─────────────────────────────────────────────────────────────────
 // FLOW FIELD
 // A 2D direction grid computed per destination tile via Dijkstra.
 // Vehicles sample their tile's direction vector each SimTick.

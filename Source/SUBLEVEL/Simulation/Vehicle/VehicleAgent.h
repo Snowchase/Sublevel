@@ -17,6 +17,9 @@ public:
 
     void Initialize(uint32 InVehicleID, EVehicleType InType, int32 InFloorIndex, int32 StartTileID);
 
+    // §14 — save/load: place this vehicle directly into the Parked state.
+    void RestoreParkedState(uint64 ParkStartTick, uint64 DespawnTick);
+
     // Engine tick: visual interpolation only — never advances sim state.
     virtual void Tick(float DeltaTime) override;
 

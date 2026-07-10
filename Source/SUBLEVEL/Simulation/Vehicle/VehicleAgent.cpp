@@ -1,9 +1,30 @@
 #include "Simulation/Vehicle/VehicleAgent.h"
+#include "Simulation/Vehicle/VehicleTypeLoader.h"
 #include "Simulation/FloorGrid/ParkingFloor.h"
 #include "Subsystems/SimulationSubsystem.h"
 #include "Subsystems/EventBusSubsystem.h"
+#include "Subsystems/EconomySubsystem.h"
 #include "Engine/World.h"
 #include "Components/StaticMeshComponent.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "UObject/ConstructorHelpers.h"
+
+namespace
+{
+    FLinearColor VehicleColor(EVehicleType Type)
+    {
+        switch (Type)
+        {
+            case EVehicleType::Compact:     return FLinearColor(0.2f, 0.7f, 0.7f);
+            case EVehicleType::Standard:    return FLinearColor(0.7f, 0.7f, 0.75f);
+            case EVehicleType::SUV:         return FLinearColor(0.8f, 0.5f, 0.15f);
+            case EVehicleType::Motorcycle:  return FLinearColor(0.6f, 0.3f, 0.8f);
+            case EVehicleType::Disabled:    return FLinearColor(0.2f, 0.45f, 0.9f);
+            case EVehicleType::DeliveryVan: return FLinearColor(0.9f, 0.9f, 0.2f);
+            default:                        return FLinearColor::White;
+        }
+    }
+}
 
 // ─────────────────────────────────────────────────────────────────
 // LIFECYCLE
@@ -15,6 +36,12 @@ AVehicleAgent::AVehicleAgent()
 
     MeshComponent = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("VehicleMesh"));
     RootComponent = MeshComponent;
+    MeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    MeshComponent->SetRelativeScale3D(FVector(0.7f, 0.4f, 0.3f));
+
+    static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeMesh(TEXT("/Engine/BasicShapes/Cube"));
+    if (CubeMesh.Succeeded())
+        MeshComponent->SetStaticMesh(CubeMesh.Object);
 }
 
 void AVehicleAgent::Initialize(uint32 InVehicleID, EVehicleType InType, int32 InFloorIndex, int32 StartTileID)
@@ -25,6 +52,12 @@ void AVehicleAgent::Initialize(uint32 InVehicleID, EVehicleType InType, int32 In
     VehicleData.FloorIndex  = InFloorIndex;
     VehicleData.CurrentTileID = StartTileID;
 
+    if (const FVehicleTypeDef* Def = FVehicleTypeLoader::FindDefinition(InType))
+        VehicleData.SpeedModifier = Def->SpeedModifier;
+
+    if (UMaterialInstanceDynamic* MID = MeshComponent->CreateAndSetMaterialInstanceDynamic(0))
+        MID->SetVectorParameterValue(TEXT("Color"), VehicleColor(InType));
+
     if (AParkingFloor* Floor = GetFloor())
     {
         WorldPosLast = TileToWorldLoc(Floor, StartTileID);
@@ -33,6 +66,15 @@ void AVehicleAgent::Initialize(uint32 InVehicleID, EVehicleType InType, int32 In
 
         Floor->AddVehicleToTile(StartTileID, InVehicleID);
     }
+}
+
+void AVehicleAgent::RestoreParkedState(uint64 ParkStartTick, uint64 DespawnTick)
+{
+    VehicleData.State         = EVehicleState::Parked;
+    VehicleData.ParkStartTick = ParkStartTick;
+    VehicleData.DespawnTick   = DespawnTick;
+    VehicleData.TargetTileID  = VehicleData.CurrentTileID;
+    ReservedStallTileID       = VehicleData.CurrentTileID;
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -111,10 +153,11 @@ void AVehicleAgent::FSM_Seeking(uint64 CurrentTick)
             return;
         }
 
-        // Reserve the stall tile
+        // Reserve the stall tile and request its flow field
         Floor->GetTile(ReservedStallTileID).bOccupied = true;
         Floor->GetTile(ReservedStallTileID).OccupantID = VehicleData.ID;
         VehicleData.TargetTileID = ReservedStallTileID;
+        Floor->MarkFlowFieldDirty((uint32)ReservedStallTileID);
     }
 
     // Move toward reserved stall via its flow field
@@ -177,11 +220,16 @@ void AVehicleAgent::FSM_Parking(uint64 CurrentTick)
 
     VehicleData.ParkStartTick = CurrentTick;
 
-    // Draw duration from seeded RNG via SimulationSubsystem
+    // Draw duration from seeded RNG, bounds from VehicleTypes.json
     if (USimulationSubsystem* Sim = GetWorld()->GetSubsystem<USimulationSubsystem>())
     {
-        const int32 DurationMin = 400;
-        const int32 DurationMax = 4800;
+        int32 DurationMin = 400;
+        int32 DurationMax = 4800;
+        if (const FVehicleTypeDef* Def = FVehicleTypeLoader::FindDefinition(VehicleData.Type))
+        {
+            DurationMin = Def->ParkDurationMinTicks;
+            DurationMax = Def->ParkDurationMaxTicks;
+        }
         VehicleData.DespawnTick = CurrentTick + Sim->GetRNG().RandRange(DurationMin, DurationMax);
     }
 
@@ -205,9 +253,8 @@ void AVehicleAgent::FSM_Circling(uint64 CurrentTick)
 
     if (MoveCooldown > 0.f) { --MoveCooldown; return; }
 
-    // Find exit gate tile — sample exit flow field
-    // For now route toward tile 0 (EntryGate fallback) until exit gates are placed
-    const int32 NextTile = SampleFlowFieldNextTile(Floor, 0);
+    const int32 ExitTile = FMath::Max(Floor->GetExitGateTile(), 0);
+    const int32 NextTile = SampleFlowFieldNextTile(Floor, (uint32)ExitTile);
     if (NextTile == -1 || NextTile == VehicleData.CurrentTileID)
     {
         TransitionTo(EVehicleState::Exiting, CurrentTick);
@@ -234,17 +281,27 @@ void AVehicleAgent::FSM_Exiting(uint64 CurrentTick)
 
     if (MoveCooldown > 0.f) { --MoveCooldown; return; }
 
-    // Sample the exit flow field — exit gates register their tile as the destination
-    const int32 NextTile = SampleFlowFieldNextTile(Floor, 0);
+    const int32 ExitTile = FMath::Max(Floor->GetExitGateTile(), 0);
+    const int32 NextTile = (VehicleData.CurrentTileID == ExitTile)
+        ? -1
+        : SampleFlowFieldNextTile(Floor, (uint32)ExitTile);
 
     if (NextTile == -1)
     {
-        // Reached exit or no path — despawn
-        const float ParkSeconds = VehicleData.ParkStartTick > 0
+        // Reached exit (or no path) — bill the stay and despawn
+        const float ParkSeconds = (VehicleData.ParkStartTick > 0 && CurrentTick > VehicleData.ParkStartTick)
             ? (CurrentTick - VehicleData.ParkStartTick) * 0.05f
             : 0.f;
-        const float HourlyRate  = 4.0f; // $4/hr base, will be replaced by EconomySubsystem
-        const float Revenue     = (ParkSeconds / 3600.f) * HourlyRate;
+
+        float Revenue = 0.f;
+        if (UEconomySubsystem* Economy = GetWorld()->GetSubsystem<UEconomySubsystem>())
+        {
+            Revenue = Economy->CalculateParkingFee(ParkSeconds, VehicleData.Type);
+        }
+        else
+        {
+            Revenue = (ParkSeconds / 3600.f) * 4.0f;   // fallback base rate
+        }
 
         if (UEventBusSubsystem* Bus = UEventBusSubsystem::Get(this))
             Bus->OnVehicleExited.Broadcast(VehicleData.ID, Revenue);
@@ -374,7 +431,9 @@ int32 AVehicleAgent::FindNearestAvailableStall(AParkingFloor* Floor) const
 
 FVector AVehicleAgent::TileToWorldLoc(AParkingFloor* Floor, int32 TileIdx) const
 {
-    return Floor ? Floor->TileIndexToWorldLocation(TileIdx) : FVector::ZeroVector;
+    // +Z so the vehicle mesh sits on top of the tile planes
+    return Floor ? Floor->TileIndexToWorldLocation(TileIdx) + FVector(0, 0, 20.f)
+                 : FVector::ZeroVector;
 }
 
 AParkingFloor* AVehicleAgent::GetFloor() const

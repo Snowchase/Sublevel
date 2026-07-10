@@ -4,6 +4,9 @@
 #include "Subsystems/EconomySubsystem.h"
 #include "Simulation/FloorGrid/ParkingFloor.h"
 #include "Simulation/Vehicle/VehicleAgent.h"
+#include "Simulation/Vehicle/VehicleTypeLoader.h"
+#include "Simulation/Incident/IncidentLoader.h"
+#include "Staff/StaffAgent.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
 #include "Math/UnrealMathUtility.h"
@@ -34,6 +37,7 @@ void USimulationSubsystem::Deinitialize()
     Incidents.Empty();
     Floors.Empty();
     EventQueue.Empty();
+    StaffActors.Empty();
 
     Super::Deinitialize();
 }
@@ -47,6 +51,8 @@ void USimulationSubsystem::InitializeRNG(int32 Seed)
     ActiveSeed = Seed;
     SimRNG.Initialize(Seed);
     UE_LOG(LogTemp, Log, TEXT("[SimulationSubsystem] RNG seeded: %d"), Seed);
+
+    SeedIncidentSchedule();
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -57,11 +63,7 @@ void USimulationSubsystem::SimTick()
 {
     ++CurrentTick;
 
-    // Advance day counter (1 in-game day = configurable tick count)
-    // 20 ticks/sec * 60 * 24 = 28800 ticks/real-minute if 1:1
-    // Tune via time scale multiplier in GameMode — placeholder here
-    constexpr uint64 TicksPerDay = 14400;  // ~12 min real-time per day at 20Hz
-    if (CurrentTick % TicksPerDay == 0)
+    if (CurrentTick % SubLevelSim::TicksPerDay == 0)
     {
         ++CurrentDay;
     }
@@ -134,11 +136,24 @@ void USimulationSubsystem::TickIncidentScheduler()
                 CurrentTick >= Incident.DecisionDeadlineTick &&
                 Incident.State == EIncidentState::DecisionPending)
             {
-                // Fire default (worst-case) branch
-                ResolveIncident(ID, 0);  // Branch 0 = default in JSON
+                // Fire the data-defined default (worst-case) branch
+                const FIncidentDefinition* Def = FIncidentLoader::FindDefinition(Incident.Type);
+                ResolveIncident(ID, Def ? Def->DefaultBranch : 0);
                 Incident.State = EIncidentState::Expired;
                 GetEventBus()->OnIncidentExpired.Broadcast(ID);
             }
+        }
+    }
+
+    // Prune resolved/expired incidents once they are stale (keeps HUD history briefly)
+    for (auto It = Incidents.CreateIterator(); It; ++It)
+    {
+        const FIncidentData& Incident = It->Value;
+        if ((Incident.State == EIncidentState::Resolved ||
+             Incident.State == EIncidentState::Expired) &&
+            CurrentTick > Incident.SpawnTick + 2000)
+        {
+            It.RemoveCurrent();
         }
     }
 }
@@ -162,16 +177,36 @@ void USimulationSubsystem::TickVisibility()
         if (Incident.TileID >= 0 &&
             Floor->GetVisibilityGrid().IsTileVisible(Incident.TileID))
         {
-            Incident.State = EIncidentState::Active;
-            GetEventBus()->OnIncidentVisible.Broadcast(Incident);
+            const FIncidentDefinition* Def = FIncidentLoader::FindDefinition(Incident.Type);
+
+            if (Def && Def->bRequiresDecision)
+            {
+                // §5 — decision card: player must pick a branch before the timer runs out
+                Incident.State = EIncidentState::DecisionPending;
+                Incident.DecisionDeadlineTick =
+                    CurrentTick + (uint64)(Def->TimerSeconds / SIM_TICK_INTERVAL);
+
+                GetEventBus()->OnIncidentVisible.Broadcast(Incident);
+                GetEventBus()->OnDecisionRequired.Broadcast(Incident);
+            }
+            else
+            {
+                Incident.State = EIncidentState::Active;
+                GetEventBus()->OnIncidentVisible.Broadcast(Incident);
+            }
         }
     }
 }
 
 void USimulationSubsystem::TickStaff()
 {
-    // Stub — StaffAgent FSM tick, fatigue/loyalty decay
-    // Implemented in §6
+    DispatchStaffToIncidents();
+
+    for (auto& [ID, Agent] : StaffActors)
+    {
+        if (Agent && !Agent->IsActorBeingDestroyed())
+            Agent->SimTick(CurrentTick);
+    }
 }
 
 void USimulationSubsystem::TickIntegrity()
@@ -199,6 +234,18 @@ void USimulationSubsystem::TickCity()
 // INCIDENT SCHEDULING
 // ─────────────────────────────────────────────────────────────────
 
+void USimulationSubsystem::SeedIncidentSchedule()
+{
+    if (bIncidentScheduleSeeded) return;
+    bIncidentScheduleSeeded = true;
+
+    // One first event per definition on floor 0 — each fire re-schedules its type.
+    for (const FIncidentDefinition& Def : FIncidentLoader::GetAllDefinitions())
+    {
+        ScheduleNextEvent(Def.Type, 0);
+    }
+}
+
 void USimulationSubsystem::FirePendingEvents()
 {
     while (EventQueue.Num() > 0 && EventQueue.HeapTop().ScheduledTick <= CurrentTick)
@@ -206,20 +253,85 @@ void USimulationSubsystem::FirePendingEvents()
         FPendingEvent E;
         EventQueue.HeapPop(E);
 
+        AParkingFloor* Floor = GetFloor(E.FloorIndex);
+        if (!Floor)
+        {
+            // Floor not registered yet (level still loading) — retry shortly
+            E.ScheduledTick = CurrentTick + 200;
+            EventQueue.HeapPush(E);
+            return;   // heap top unchanged otherwise → avoid spinning
+        }
+
+        // Assign the tile at fire time based on current floor state
+        int32 TileID = E.TileID >= 0 ? E.TileID : PickIncidentTile(Floor);
+        if (TileID < 0)
+        {
+            ScheduleNextEvent(E.Type, E.FloorIndex);
+            continue;
+        }
+
         FIncidentData NewIncident;
         NewIncident.ID          = NextIncidentID++;
         NewIncident.Type        = E.Type;
         NewIncident.State       = EIncidentState::Pending;
         NewIncident.FloorIndex  = E.FloorIndex;
-        NewIncident.TileID      = E.TileID;
+        NewIncident.TileID      = TileID;
         NewIncident.Severity    = E.Severity;
         NewIncident.SpawnTick   = CurrentTick;
+
+        SetIncidentTileBlocked(NewIncident, true);
 
         Incidents.Add(NewIncident.ID, NewIncident);
         GetEventBus()->OnIncidentSpawned.Broadcast(NewIncident);
 
         // Schedule next event of this type for this floor (Poisson)
         ScheduleNextEvent(E.Type, E.FloorIndex);
+    }
+}
+
+int32 USimulationSubsystem::PickIncidentTile(AParkingFloor* Floor)
+{
+    if (!Floor || Floor->GetTileCount() == 0) return -1;
+
+    for (int32 Attempt = 0; Attempt < 32; ++Attempt)
+    {
+        const int32 Candidate = SimRNG.RandRange(0, Floor->GetTileCount() - 1);
+        const FFloorTile& Tile = Floor->GetTile(Candidate);
+        if (Tile.Type == ETileType::Lane && !Tile.bBlocked)
+            return Candidate;
+    }
+    return -1;
+}
+
+void USimulationSubsystem::SetIncidentTileBlocked(FIncidentData& Incident, bool bBlocked)
+{
+    // Only physically-obstructing incident types block the tile.
+    switch (Incident.Type)
+    {
+        case EIncidentType::FenderBender:
+        case EIncidentType::OilSpill:
+        case EIncidentType::MedicalEmergency:
+        case EIncidentType::Altercation:
+        case EIncidentType::StructuralCrack:
+        case EIncidentType::PipeBurst:
+            break;
+        default:
+            return;
+    }
+
+    AParkingFloor* Floor = GetFloor(Incident.FloorIndex);
+    if (!Floor || !Floor->IsValidTileIndex(Incident.TileID)) return;
+
+    FFloorTile& Tile = Floor->GetTile(Incident.TileID);
+    if (Tile.bBlocked == bBlocked) return;
+
+    Tile.bBlocked = bBlocked;
+    Floor->MarkAllFlowFieldsDirty();   // vehicles re-route around the blockage
+
+    if (Incident.Type == EIncidentType::StructuralCrack)
+    {
+        if (bBlocked) Floor->AddCrack();
+        else          Floor->RemoveCrack();
     }
 }
 
@@ -238,22 +350,12 @@ void USimulationSubsystem::ScheduleIncident(
 
 void USimulationSubsystem::ScheduleNextEvent(EIncidentType Type, int32 FloorIndex)
 {
-    // Lambda values per incident type — tuned via Python balance tools
-    // Higher lambda = more frequent
-    static const TMap<EIncidentType, float> IncidentLambda =
-    {
-        { EIncidentType::FenderBender,     0.005f },
-        { EIncidentType::OilSpill,         0.003f },
-        { EIncidentType::OverstayVehicle,  0.010f },
-        { EIncidentType::SuspiciousVehicle,0.002f },
-        // ... remaining types
-    };
+    // Lambda values come from Data/IncidentTypes.json (§5)
+    const FIncidentDefinition* Def = FIncidentLoader::FindDefinition(Type);
+    if (!Def || Def->Lambda <= 0.f) return;
 
-    const float* Lambda = IncidentLambda.Find(Type);
-    if (!Lambda) return;
-
-    const float Interval = SamplePoissonInterval(*Lambda);  // In seconds
-    const uint64 DelayTicks = FMath::RoundToInt(Interval / SIM_TICK_INTERVAL);
+    const float Interval = SamplePoissonInterval(Def->Lambda);  // In seconds
+    const uint64 DelayTicks = FMath::Max(1, FMath::RoundToInt(Interval / SIM_TICK_INTERVAL));
 
     FPendingEvent Next;
     Next.ScheduledTick = CurrentTick + DelayTicks;
@@ -277,12 +379,162 @@ void USimulationSubsystem::ResolveIncident(uint32 IncidentID, int32 BranchIndex)
 {
     FIncidentData* Incident = Incidents.Find(IncidentID);
     if (!Incident) return;
+    if (Incident->State == EIncidentState::Resolved ||
+        Incident->State == EIncidentState::Expired) return;
 
+    SetIncidentTileBlocked(*Incident, false);
     Incident->State = EIncidentState::Resolved;
+
     GetEventBus()->OnDecisionMade.Broadcast(IncidentID, BranchIndex);
     GetEventBus()->OnIncidentResolved.Broadcast(IncidentID);
 
     // Faction consequences applied by UEconomySubsystem listening to OnDecisionMade
+}
+
+void USimulationSubsystem::ResolveIncidentByStaff(uint32 IncidentID)
+{
+    FIncidentData* Incident = Incidents.Find(IncidentID);
+    if (!Incident) return;
+    if (Incident->State == EIncidentState::Resolved ||
+        Incident->State == EIncidentState::Expired) return;
+
+    SetIncidentTileBlocked(*Incident, false);
+    Incident->State = EIncidentState::Resolved;
+
+    // No decision branch — staff handled it quietly.
+    GetEventBus()->OnIncidentResolved.Broadcast(IncidentID);
+}
+
+uint32 USimulationSubsystem::GetFirstPendingDecisionID() const
+{
+    uint32 BestID = 0;
+    uint64 BestDeadline = TNumericLimits<uint64>::Max();
+
+    // Most urgent (soonest deadline) decision first
+    for (const auto& [ID, Incident] : Incidents)
+    {
+        if (Incident.State == EIncidentState::DecisionPending &&
+            Incident.DecisionDeadlineTick < BestDeadline)
+        {
+            BestDeadline = Incident.DecisionDeadlineTick;
+            BestID = ID;
+        }
+    }
+    return BestID;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// STAFF (§6)
+// ─────────────────────────────────────────────────────────────────
+
+AStaffAgent* USimulationSubsystem::HireStaff(EStaffRole Role, int32 FloorIndex)
+{
+    FStaffData Data;
+    Data.ID            = NextStaffID;
+    Data.Role          = Role;
+    Data.Trait         = (EStaffTrait)SimRNG.RandRange(0, (int32)EStaffTrait::Experienced);
+    Data.AssignedFloor = FloorIndex;
+
+    return SpawnStaffActor(Data);
+}
+
+AStaffAgent* USimulationSubsystem::SpawnStaffActor(const FStaffData& Data)
+{
+    FActorSpawnParameters Params;
+    Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+    AStaffAgent* Agent = GetWorld()->SpawnActor<AStaffAgent>(
+        AStaffAgent::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator, Params);
+    if (!Agent) return nullptr;
+
+    if (Data.Fatigue > 0.f || Data.Loyalty < 1.f || Data.CurrentTileID >= 0)
+        Agent->RestoreData(Data);   // save/load path — keep stats
+    else
+        Agent->Initialize(Data.ID, Data.Role, Data.Trait, Data.AssignedFloor);
+
+    StaffActors.Add(Data.ID, Agent);
+    NextStaffID = FMath::Max(NextStaffID, Data.ID + 1);
+
+    UE_LOG(LogTemp, Log, TEXT("[SimulationSubsystem] Staff %u hired (%s)"),
+        Data.ID, *StaticEnum<EStaffRole>()->GetNameStringByValue((int64)Data.Role));
+    return Agent;
+}
+
+void USimulationSubsystem::DispatchStaffToIncidents()
+{
+    for (auto& [ID, Incident] : Incidents)
+    {
+        if (Incident.State != EIncidentState::Active) continue;
+        if (Incident.AssignedStaffID != 0)            continue;
+
+        const FIncidentDefinition* Def = FIncidentLoader::FindDefinition(Incident.Type);
+        if (!Def || Def->bRequiresDecision) continue;   // decisions are the player's job
+
+        // Find an idle staff member of the right role on the incident's floor
+        for (auto& [StaffID, Agent] : StaffActors)
+        {
+            if (!Agent || Agent->IsActorBeingDestroyed()) continue;
+
+            const FStaffData& Staff = Agent->GetStaffData();
+            if (Staff.Role != Def->AutoResolveRole)          continue;
+            if (Staff.AssignedFloor != Incident.FloorIndex)  continue;
+            if (!Agent->IsIdle())                            continue;
+
+            FStaffTask Task;
+            Task.Type          = EStaffTaskType::ResolveIncident;
+            Task.TargetTileID  = Incident.TileID;
+            Task.IncidentID    = ID;
+            // Base 10 seconds of work, scaled by trait/fatigue speed
+            Task.TicksRemaining = FMath::CeilToInt(200.f / Staff.ResolutionSpeed());
+            Task.bInterruptible = false;
+
+            Agent->EnqueueTask(Task);
+            Incident.AssignedStaffID = (int32)StaffID;
+            Incident.State = EIncidentState::InProgress;
+            break;
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// VEHICLE SPAWNING (§7)
+// ─────────────────────────────────────────────────────────────────
+
+AVehicleAgent* USimulationSubsystem::SpawnVehicleAt(EVehicleType Type, int32 FloorIndex, int32 TileID)
+{
+    AParkingFloor* Floor = GetFloor(FloorIndex);
+    if (!Floor || !Floor->IsValidTileIndex(TileID)) return nullptr;
+
+    FActorSpawnParameters Params;
+    Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+    AVehicleAgent* Agent = GetWorld()->SpawnActor<AVehicleAgent>(
+        AVehicleAgent::StaticClass(),
+        Floor->TileIndexToWorldLocation(TileID),
+        FRotator::ZeroRotator,
+        Params);
+    if (!Agent) return nullptr;
+
+    const uint32 VehicleID = NextVehicleID++;
+    Agent->Initialize(VehicleID, Type, FloorIndex, TileID);
+
+    FVehicleData Data = Agent->GetVehicleData();
+    RegisterVehicle(VehicleID, Data, Agent);
+    return Agent;
+}
+
+AVehicleAgent* USimulationSubsystem::SpawnVehicleFromCity(EVehicleType Type)
+{
+    AParkingFloor* Floor = GetFloor(0);
+    if (!Floor) return nullptr;
+
+    const int32 EntryTile = Floor->GetEntryGateTile();
+    if (EntryTile < 0) return nullptr;
+
+    // Don't stack arrivals on a congested gate
+    if (Floor->GetVehicleCountOnTile(EntryTile) >= 2) return nullptr;
+
+    return SpawnVehicleAt(Type, 0, EntryTile);
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -333,6 +585,45 @@ int32 USimulationSubsystem::GetVehicleCountOnTile(int32 FloorIndex, int32 TileID
             ++Count;
     }
     return Count;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// SAVE/LOAD SUPPORT (§14)
+// ─────────────────────────────────────────────────────────────────
+
+void USimulationSubsystem::SetClock(uint64 Tick, int32 Day)
+{
+    CurrentTick = Tick;
+    CurrentDay  = Day;
+}
+
+void USimulationSubsystem::ClearAllAgents()
+{
+    for (auto& [ID, Agent] : VehicleActors)
+    {
+        if (Agent && !Agent->IsActorBeingDestroyed()) Agent->Destroy();
+    }
+    VehicleActors.Empty();
+    Vehicles.Empty();
+
+    for (auto& [ID, Agent] : StaffActors)
+    {
+        if (Agent && !Agent->IsActorBeingDestroyed()) Agent->Destroy();
+    }
+    StaffActors.Empty();
+
+    Incidents.Empty();
+    EventQueue.Empty();
+    bIncidentScheduleSeeded = false;
+
+    for (auto& [Index, Floor] : Floors)
+    {
+        if (Floor)
+        {
+            Floor->ClearAllOccupants();
+            Floor->MarkAllFlowFieldsDirty();
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────

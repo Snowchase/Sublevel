@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
 #include "InputActionValue.h"
+#include "SubLevelTypes.h"
 #include "SubLevelPlayerController.generated.h"
 
 class UInputMappingContext;
@@ -26,6 +27,7 @@ public:
 
     virtual void BeginPlay() override;
     virtual void SetupInputComponent() override;
+    virtual void PlayerTick(float DeltaTime) override;
 
     // ── Mode switching ────────────────────────────────────────────
     UFUNCTION(BlueprintCallable) void       SetPlayerMode(EPlayerMode NewMode);
@@ -63,12 +65,28 @@ private:
     void OnFloorUp();
     void OnFloorDown();
 
+    // ── Raw key bindings (test build — no Enhanced Input assets) ──
+    void OnZoomIn();
+    void OnZoomOut();
+    void OnDecision1();
+    void OnDecision2();
+    void OnDecision3();
+    void OnHireAttendant();
+    void OnHireSecurity();
+    void OnHireMaintenance();
+    void OnSaveGame();
+    void OnLoadGame();
+
+    void ResolveDecisionBranch(int32 BranchIndex);
+    void HireStaffOfRole(EStaffRole Role);
+    void EnsureCameraPawn();
+
     // ── State ─────────────────────────────────────────────────────
     EPlayerMode CurrentMode      = EPlayerMode::Management;
     int32       ActiveFloorIndex = 0;
     int32       ActiveCameraIdx  = 0;
 
-    UPROPERTY() class ACameraActor* TopDownCamera = nullptr;
+    UPROPERTY() class ASubLevelCameraPawn* CameraPawn = nullptr;
 
     float MinOrthoWidth     =  800.0f;
     float MaxOrthoWidth     = 6000.0f;

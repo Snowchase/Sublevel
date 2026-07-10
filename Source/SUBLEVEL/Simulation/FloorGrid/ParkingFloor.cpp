@@ -5,6 +5,9 @@
 #include "Subsystems/SimulationSubsystem.h"
 #include "Subsystems/EventBusSubsystem.h"
 #include "Async/TaskGraphInterfaces.h"
+#include "Components/InstancedStaticMeshComponent.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "UObject/ConstructorHelpers.h"
 #include "Engine/World.h"
 
 // ─────────────────────────────────────────────────────────────────
@@ -14,11 +17,37 @@
 AParkingFloor::AParkingFloor()
 {
     PrimaryActorTick.bCanEverTick = false;
+
+    SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("SceneRoot"));
+    RootComponent = SceneRoot;
+
+    // Engine basic shapes — always available, no content required.
+    static ConstructorHelpers::FObjectFinder<UStaticMesh> PlaneFinder(TEXT("/Engine/BasicShapes/Plane"));
+    static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeFinder(TEXT("/Engine/BasicShapes/Cube"));
+    static ConstructorHelpers::FObjectFinder<UMaterialInterface> MaterialFinder(TEXT("/Engine/BasicShapes/BasicShapeMaterial"));
+
+    if (PlaneFinder.Succeeded())    TilePlaneMesh    = PlaneFinder.Object;
+    if (CubeFinder.Succeeded())     WallCubeMesh     = CubeFinder.Object;
+    if (MaterialFinder.Succeeded()) TileBaseMaterial = MaterialFinder.Object;
 }
 
 void AParkingFloor::BeginPlay()
 {
     Super::BeginPlay();
+
+    // Test builds: give an empty floor a working layout so the sim has
+    // something to run on without hand-authored level content.
+    if (Tiles.Num() == 0 && bAutoGenerateTestLayout)
+    {
+        InitializeGrid(DefaultGridWidth, DefaultGridHeight);
+        GenerateDefaultLayout();
+        RebuildTileVisuals();
+    }
+
+    RebuildVisibility();
+
+    if (ExitGateTile >= 0)
+        MarkFlowFieldDirty((uint32)ExitGateTile);   // exit field ready before first vehicle
 
     if (USimulationSubsystem* Sim = GetWorld()->GetSubsystem<USimulationSubsystem>())
     {
@@ -37,6 +66,173 @@ void AParkingFloor::InitializeGrid(int32 Width, int32 Height)
 
     Tiles.SetNum(Width * Height);
     VisibilityGrid.Initialize(Width * Height);
+}
+
+// ─────────────────────────────────────────────────────────────────
+// DEFAULT TEST LAYOUT
+//
+//   row 0        : wall  E=entry  X=exit  wall
+//   rows 1-2     : lane corridor (connects the gates)
+//   rows 3..H-3  : [stall][stall][lane] repeating blocks
+//   row H-2      : lane corridor (bottom return)
+//   row H-1      : wall
+//   cols 0,W-1   : wall;  cols 1-2 and W-3..W-2: vertical lanes
+// ─────────────────────────────────────────────────────────────────
+
+void AParkingFloor::GenerateDefaultLayout()
+{
+    if (GridWidth < 8 || GridHeight < 8) return;
+
+    const int32 W = GridWidth;
+    const int32 H = GridHeight;
+
+    auto SetTile = [this](int32 Row, int32 Col, ETileType Type)
+    {
+        FFloorTile& Tile = GetTileXY(Row, Col);
+        Tile.Type      = Type;
+        Tile.LaneFlags = ELaneFlag::All;
+    };
+
+    // Perimeter walls
+    for (int32 Col = 0; Col < W; ++Col)
+    {
+        SetTile(0,     Col, ETileType::Wall);
+        SetTile(H - 1, Col, ETileType::Wall);
+    }
+    for (int32 Row = 0; Row < H; ++Row)
+    {
+        SetTile(Row, 0,     ETileType::Wall);
+        SetTile(Row, W - 1, ETileType::Wall);
+    }
+
+    // Interior: lanes + stall rows
+    for (int32 Row = 1; Row < H - 1; ++Row)
+    {
+        for (int32 Col = 1; Col < W - 1; ++Col)
+        {
+            const bool bVerticalLane   = (Col <= 2) || (Col >= W - 3);
+            const bool bTopCorridor    = (Row <= 2);
+            const bool bBottomCorridor = (Row == H - 2);
+            const bool bLaneRow        = ((Row - 3) % 3 == 2);
+
+            if (bVerticalLane || bTopCorridor || bBottomCorridor || bLaneRow)
+            {
+                SetTile(Row, Col, ETileType::Lane);
+                continue;
+            }
+
+            // Stall type by column band
+            ETileType StallType = ETileType::Stall_Standard;
+            if      (Col <= 6)       StallType = ETileType::Stall_Compact;
+            else if (Col <= 14)      StallType = ETileType::Stall_Standard;
+            else if (Col <= 17)      StallType = ETileType::Stall_Oversized;
+            else if (Col == 18)      StallType = ETileType::Stall_Motorcycle;
+            else if (Col == 19)      StallType = ETileType::Stall_Disabled;
+
+            SetTile(Row, Col, StallType);
+        }
+    }
+
+    // Gates on the top wall, opening into the top corridor
+    const int32 EntryCol = FMath::Clamp(W / 4,     1, W - 2);
+    const int32 ExitCol  = FMath::Clamp(3 * W / 4, 1, W - 2);
+    SetTile(0, EntryCol, ETileType::EntryGate);
+    SetTile(0, ExitCol,  ETileType::ExitGate);
+
+    EntryGateTile = TileIndex(0, EntryCol);
+    ExitGateTile  = TileIndex(0, ExitCol);
+
+    UE_LOG(LogTemp, Log, TEXT("[ParkingFloor %d] Generated %dx%d test layout (entry=%d exit=%d)"),
+        FloorIndex, W, H, EntryGateTile, ExitGateTile);
+}
+
+// ─────────────────────────────────────────────────────────────────
+// TEST VISUALS — instanced planes/cubes from engine basic shapes
+// ─────────────────────────────────────────────────────────────────
+
+namespace
+{
+    FLinearColor TileColor(ETileType Type)
+    {
+        switch (Type)
+        {
+            case ETileType::Lane:             return FLinearColor(0.10f, 0.10f, 0.12f);
+            case ETileType::Stall_Standard:   return FLinearColor(0.16f, 0.22f, 0.30f);
+            case ETileType::Stall_Compact:    return FLinearColor(0.14f, 0.28f, 0.26f);
+            case ETileType::Stall_Oversized:  return FLinearColor(0.30f, 0.22f, 0.12f);
+            case ETileType::Stall_Motorcycle: return FLinearColor(0.24f, 0.16f, 0.30f);
+            case ETileType::Stall_Disabled:   return FLinearColor(0.10f, 0.25f, 0.45f);
+            case ETileType::EntryGate:        return FLinearColor(0.10f, 0.45f, 0.12f);
+            case ETileType::ExitGate:         return FLinearColor(0.45f, 0.10f, 0.10f);
+            case ETileType::Ramp_Up:
+            case ETileType::Ramp_Down:        return FLinearColor(0.40f, 0.35f, 0.10f);
+            case ETileType::Wall:             return FLinearColor(0.35f, 0.35f, 0.38f);
+            default:                          return FLinearColor::Black;
+        }
+    }
+}
+
+UInstancedStaticMeshComponent* AParkingFloor::GetOrCreateISMForType(ETileType Type)
+{
+    if (UInstancedStaticMeshComponent** Found = TileVisualISMs.Find((uint8)Type))
+        return *Found;
+
+    UInstancedStaticMeshComponent* ISM = NewObject<UInstancedStaticMeshComponent>(this);
+    ISM->SetupAttachment(RootComponent);
+    ISM->RegisterComponent();
+    ISM->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    ISM->SetStaticMesh(Type == ETileType::Wall ? WallCubeMesh : TilePlaneMesh);
+
+    if (TileBaseMaterial)
+    {
+        UMaterialInstanceDynamic* MID = UMaterialInstanceDynamic::Create(TileBaseMaterial, this);
+        MID->SetVectorParameterValue(TEXT("Color"), TileColor(Type));
+        ISM->SetMaterial(0, MID);
+    }
+
+    TileVisualISMs.Add((uint8)Type, ISM);
+    return ISM;
+}
+
+void AParkingFloor::RebuildTileVisuals()
+{
+    if (!TilePlaneMesh || !WallCubeMesh) return;
+
+    for (auto& [TypeKey, ISM] : TileVisualISMs)
+    {
+        if (ISM) ISM->ClearInstances();
+    }
+
+    for (int32 Idx = 0; Idx < Tiles.Num(); ++Idx)
+    {
+        const ETileType Type = Tiles[Idx].Type;
+        if (Type == ETileType::Empty) continue;
+
+        UInstancedStaticMeshComponent* ISM = GetOrCreateISMForType(Type);
+        if (!ISM) continue;
+
+        const FVector Center = TileIndexToWorldLocation(Idx);
+        FTransform InstanceTransform;
+
+        if (Type == ETileType::Wall)
+        {
+            // Cube is 100³ at scale 1 — raise it half a tile and stretch upward
+            InstanceTransform = FTransform(
+                FRotator::ZeroRotator,
+                Center + FVector(0, 0, 100.f),
+                FVector(1.f, 1.f, 2.f));
+        }
+        else
+        {
+            // Plane is 100×100 at scale 1 — exactly one tile
+            InstanceTransform = FTransform(
+                FRotator::ZeroRotator,
+                Center,
+                FVector(0.96f, 0.96f, 1.f));   // slight inset shows grid lines
+        }
+
+        ISM->AddInstance(InstanceTransform, /*bWorldSpace =*/ true);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -196,6 +392,15 @@ void AParkingFloor::RebuildVisibility()
     VisibilityGrid.CameraCoverage.Init(false, TileCount);
     VisibilityGrid.LightCoverage.Init(false, TileCount);
 
+    // Test-build fallback: with no cameras or lights placed, treat the whole
+    // floor as visible so incidents surface and the sim loop is playable.
+    if (RegisteredCameras.Num() == 0 && RegisteredLights.Num() == 0)
+    {
+        VisibilityGrid.CameraCoverage.Init(true, TileCount);
+        VisibilityGrid.LightCoverage.Init(true, TileCount);
+        return;
+    }
+
     for (const ASecurityCamera* Cam : RegisteredCameras)
     {
         if (!Cam || Cam->GetCameraState() == ECameraState::Offline) continue;
@@ -228,6 +433,17 @@ void AParkingFloor::TickLights(uint64 CurrentTick, FRandomStream& RNG)
 const TSet<uint32>* AParkingFloor::GetVehiclesOnTile(int32 TileIdx) const
 {
     return TileOccupants.Find(TileIdx);
+}
+
+void AParkingFloor::ClearAllOccupants()
+{
+    TileOccupants.Empty();
+    for (FFloorTile& Tile : Tiles)
+    {
+        Tile.bOccupied  = false;
+        Tile.bBlocked   = false;
+        Tile.OccupantID = 0;
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────
