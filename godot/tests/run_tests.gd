@@ -39,12 +39,27 @@ var _failures: Array[String] = []
 var _current := ""
 
 
+var _ran := false
+
+
 func _initialize() -> void:
 	print("\n=== SUBLEVEL playtest — headless tests ===")
 	data = DataLoader.new()
 	data.load_all()
 	print("Data dir: %s" % data.data_dir)
 
+
+## Tests run on the first frame: by then the scene tree is live, so nodes
+## added to `root` receive _ready immediately (they don't inside _initialize).
+func _process(_delta: float) -> bool:
+	if _ran:
+		return false
+	_ran = true
+	_run_all()
+	return false
+
+
+func _run_all() -> void:
 	var only := ""
 	for arg in OS.get_cmdline_user_args():
 		if String(arg).begins_with("--only="):
@@ -57,7 +72,10 @@ func _initialize() -> void:
 		_current = test_name
 		var failed_before := _failed
 		var t0 := Time.get_ticks_msec()
-		call(test_name)
+		var completed: Variant = call(test_name)
+		if not (completed is bool and completed):
+			_failed += 1
+			_failures.append("%s: aborted by a script error (see SCRIPT ERROR above)" % test_name)
 		var ms := Time.get_ticks_msec() - t0
 		print("%s  %s  (%d ms)" % ["PASS" if _failed == failed_before else "FAIL", test_name, ms])
 
@@ -109,7 +127,7 @@ func run_until(sim: Simulation, predicate: Callable, max_ticks: int) -> int:
 
 # ── Tests ────────────────────────────────────────────────────────
 
-func test_data_loads() -> void:
+func test_data_loads() -> bool:
 	check(data.errors.is_empty(), "data errors: %s" % str(data.errors))
 	check(data.incident_defs.size() == 10, "10 incident types (got %d)" % data.incident_defs.size())
 	check(data.vehicle_defs.size() == 6, "6 vehicle types (got %d)" % data.vehicle_defs.size())
@@ -125,9 +143,10 @@ func test_data_loads() -> void:
 		"SuspiciousVehicle 'Report to Police' delta = police +5, shadow -10")
 	var suv: Dictionary = data.vehicle_defs.get("SUV", {})
 	check(suv.get("stalls", []) == [C.Tile.STALL_OVERSIZED], "SUV parks only in oversized stalls")
+	return true
 
 
-func test_layout() -> void:
+func test_layout() -> bool:
 	var sim := quiet_sim()
 	var grid = sim.grid
 	check(grid.width == 24 and grid.height == 16, "24x16 grid")
@@ -145,9 +164,10 @@ func test_layout() -> void:
 	check(counts.get(C.Tile.STALL_OVERSIZED, 0) == 24, "24 oversized stalls")
 	check(counts.get(C.Tile.STALL_MOTORCYCLE, 0) == 8, "8 motorcycle stalls")
 	check(counts.get(C.Tile.STALL_DISABLED, 0) == 8, "8 disabled stalls")
+	return true
 
 
-func test_pathing() -> void:
+func test_pathing() -> bool:
 	var sim := quiet_sim()
 	var grid = sim.grid
 
@@ -176,9 +196,10 @@ func test_pathing() -> void:
 	check(not rerouted.has(blocker), "re-route avoids the blocked tile")
 	grid.set_blocked(blocker, false)
 	check(grid.is_passable(blocker), "unblocking restores the tile")
+	return true
 
 
-func test_determinism() -> void:
+func test_determinism() -> bool:
 	var a := Simulation.new()
 	var b := Simulation.new()
 	var c := Simulation.new()
@@ -196,9 +217,10 @@ func test_determinism() -> void:
 	check(a.state_signature() == b.state_signature(), "same seed → identical state after 6000 ticks")
 	check(a.state_signature() != c.state_signature(), "different seed → different state")
 	check(a.vehicles.size() > 0 or a.stats["entered"] > 0, "determinism run actually had traffic")
+	return true
 
 
-func test_single_vehicle_lifecycle() -> void:
+func test_single_vehicle_lifecycle() -> bool:
 	var sim := quiet_sim()
 	var v = sim.spawn_vehicle("Standard")
 	var ticks := run_until(sim, func(): return v.is_parked(), 600)
@@ -222,9 +244,10 @@ func test_single_vehicle_lifecycle() -> void:
 	for n in sim.grid.vehicle_count:
 		lane_total += n
 	check(lane_total == 0, "occupancy index empty after the only car left")
+	return true
 
 
-func test_stall_compatibility() -> void:
+func test_stall_compatibility() -> bool:
 	for type_name in C.VEHICLE_TYPES:
 		var sim := quiet_sim()
 		var v = sim.spawn_vehicle(type_name)
@@ -232,9 +255,10 @@ func test_stall_compatibility() -> void:
 		var allowed: Array = data.vehicle_defs[type_name]["stalls"]
 		check(v.is_parked(), "%s parks" % type_name)
 		check(allowed.has(sim.grid.tile_at(v.cell)), "%s parked in an allowed stall type" % type_name)
+	return true
 
 
-func test_decision_branch_applies_json_deltas() -> void:
+func test_decision_branch_applies_json_deltas() -> bool:
 	var sim := quiet_sim()
 	var inc = sim.spawn_incident("SuspiciousVehicle")
 	check(inc != null, "incident spawned")
@@ -248,9 +272,10 @@ func test_decision_branch_applies_json_deltas() -> void:
 	check(inc.state == C.IncidentState.RESOLVED, "incident resolved")
 	check(sim.decision_log.size() == 1 and not sim.decision_log[0]["expired"], "decision logged")
 	check(not sim.resolve_decision(inc.id, 1), "cannot decide the same incident twice")
+	return true
 
 
-func test_decision_expiry_fires_default_branch() -> void:
+func test_decision_expiry_fires_default_branch() -> bool:
 	var sim := quiet_sim()
 	var start_balance := sim.balance
 	var inc = sim.spawn_incident("OverstayVehicle")   # default branch 1: Issue Fine Only
@@ -260,9 +285,10 @@ func test_decision_expiry_fires_default_branch() -> void:
 	check(approx(sim.balance - start_balance, 50.0), "fine_issued consequence paid $50 (got %.2f)" % (sim.balance - start_balance))
 	check(sim.decision_log.size() == 1 and sim.decision_log[0]["expired"], "expiry logged as ignored")
 	check(sim.stats["decisions_expired"] == 1, "expired decision counted")
+	return true
 
 
-func test_security_gated_branches() -> void:
+func test_security_gated_branches() -> bool:
 	var sim := quiet_sim()
 	var inc = sim.spawn_incident("Altercation")   # 0: Security Handles It, 1: Call Police
 	check(not sim.is_branch_available(inc, 0), "Security branch locked with no guard on staff")
@@ -283,9 +309,10 @@ func test_security_gated_branches() -> void:
 		if s.role == C.Role.SECURITY and not s.is_idle():
 			responding = true
 	check(responding, "guard dispatched to the scene")
+	return true
 
 
-func test_staff_clears_blocking_incident() -> void:
+func test_staff_clears_blocking_incident() -> bool:
 	var sim := quiet_sim()
 	sim.hire_staff(C.Role.MAINTENANCE)
 	var cell := Vector2i(12, 8)
@@ -300,9 +327,10 @@ func test_staff_clears_blocking_incident() -> void:
 	check(sim.stats["resolved_by_staff"] == 1, "counted as staff-resolved")
 	var worker = sim.staff.values()[0]
 	check(worker.fatigue > 0.0, "working raised fatigue")
+	return true
 
 
-func test_unattended_incident_is_fined() -> void:
+func test_unattended_incident_is_fined() -> bool:
 	var sim := quiet_sim()
 	var start_balance := sim.balance
 	var inc = sim.spawn_incident("FenderBender")   # expire delta: city -1
@@ -311,9 +339,10 @@ func test_unattended_incident_is_fined() -> void:
 	check(approx(sim.factions["city_authority"], -1.0), "expiry delta city -1")
 	check(approx(start_balance - sim.balance, C.AUTO_INCIDENT_EXPIRE_FINE), "fined $%d" % int(C.AUTO_INCIDENT_EXPIRE_FINE))
 	check(not sim.grid.is_blocked(inc.cell), "tile reopened after expiry")
+	return true
 
 
-func test_tow_consequence_removes_vehicle() -> void:
+func test_tow_consequence_removes_vehicle() -> bool:
 	var sim := quiet_sim()
 	var v = sim.spawn_vehicle("Standard")
 	run_until(sim, func(): return v.is_parked(), 600)
@@ -327,9 +356,10 @@ func test_tow_consequence_removes_vehicle() -> void:
 	check(sim.grid.stall_owner[sim.grid.idx(stall)] == 0, "stall freed")
 	check(approx(sim.balance - before, 75.0), "towing recovered $75")
 	check(approx(sim.factions["shadow_clients"], -5.0), "shadow -5")
+	return true
 
 
-func test_day_end_wages_and_loan() -> void:
+func test_day_end_wages_and_loan() -> bool:
 	var sim := quiet_sim()
 	sim.hire_staff(C.Role.ATTENDANT)     # 80
 	sim.hire_staff(C.Role.SECURITY)      # 120
@@ -344,18 +374,20 @@ func test_day_end_wages_and_loan() -> void:
 	check(approx(sim.loan_principal, C.LOAN_AMOUNT * (1.0 - C.LOAN_REPAYMENT_FRACTION)), "principal reduced by 5%")
 	check(sim.day_history.size() == 1, "day summary recorded")
 	check(sim.stats["revenue"] == 0.0 and sim.stats["expenses"] == 0.0, "daily stats reset")
+	return true
 
 
-func test_bankruptcy() -> void:
+func test_bankruptcy() -> bool:
 	var sim := quiet_sim()
 	sim.balance = C.BANKRUPT_THRESHOLD - 1.0
 	check(not sim.bankrupt, "not bankrupt before the day closes")
 	sim.tick_count = C.TICKS_PER_DAY - 1
 	sim.tick()
 	check(sim.bankrupt, "bankrupt at day end below the threshold")
+	return true
 
 
-func test_city_events() -> void:
+func test_city_events() -> bool:
 	var sim := quiet_sim()
 	sim.demand_scale = 1.0
 	sim.factions["police"] = -40.0
@@ -381,9 +413,10 @@ func test_city_events() -> void:
 	var hours := maxf(float(sim2.tick_count - 1 - v.park_start) / C.TICKS_PER_HOUR, C.MIN_BILLED_HOURS)
 	check(sim2.balance - before >= C.HOURLY_RATE * hours * C.SURGE_MULTIPLIER * 0.95,
 		"surge fee charged during StadiumNight")
+	return true
 
 
-func test_street_queue_overflow() -> void:
+func test_street_queue_overflow() -> bool:
 	var sim := quiet_sim()
 	sim.demand_scale = 400.0
 	var max_queue := 0
@@ -394,9 +427,10 @@ func test_street_queue_overflow() -> void:
 	check(sim.stats["lost_at_gate"] > 0, "overflow arrivals counted as lost at the gate")
 	check(sim.stats["entered"] > 0, "cars still entered under overload")
 	check(sim.grid.vehicles_on(sim.grid.entry_gate) <= C.MAX_VEHICLES_PER_TILE, "gate congestion cap respected")
+	return true
 
 
-func test_hud_and_main_scene_smoke() -> void:
+func test_hud_and_main_scene_smoke() -> bool:
 	# HUD against a busy sim — catches format-string and property errors.
 	var Hud = load("res://scripts/game/hud.gd")
 	var sim := quiet_sim(5)
@@ -440,9 +474,10 @@ func test_hud_and_main_scene_smoke() -> void:
 	main.logger.write(main.sim, "test")
 	check(FileAccess.file_exists(main.logger.path), "playtest log file written")
 	main.queue_free()
+	return true
 
 
-func test_soak_three_days() -> void:
+func test_soak_three_days() -> bool:
 	var sim := Simulation.new()
 	sim.setup(99, data)
 	sim.demand_scale = 3.0
@@ -493,6 +528,9 @@ func test_soak_three_days() -> void:
 			d["day"], d["revenue"], d["expenses"], d["served"], d["turned_away"], d["lost_at_gate"],
 			d["peak_occupancy"], d["incidents"], d["resolved_by_staff"], d["incidents_unattended"],
 			d["decisions_made"], d["decisions_made"] + d["decisions_expired"]])
+		print("      revenue by source %s · expenses by %s · events %s" % [
+			str(d["revenue_by"]), str(d["expenses_by"]), str(d["city_events"])])
+	return true
 
 
 ## Cross-checks the grid's bookkeeping against the agents. Returns problem descriptions.

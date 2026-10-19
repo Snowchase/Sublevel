@@ -85,6 +85,29 @@ jobs:
           done
           ls -la results
 
+      # Small JPEG previews of the screenshots as base64 text, so the
+      # screenshots can be checked from the job log without the artifact.
+      - name: Screenshot previews (base64 JPEG)
+        if: always()
+        run: |
+          sudo apt-get install -y -qq python3-pil > /dev/null
+          python3 - <<'PY'
+          import base64, glob, io
+          from PIL import Image
+          for path in sorted(glob.glob("results/screenshot_*.png")):
+              if "early" in path:
+                  continue
+              im = Image.open(path).convert("RGB")
+              im.thumbnail((800, 450))
+              buf = io.BytesIO()
+              im.save(buf, "JPEG", quality=62, optimize=True)
+              data = base64.b64encode(buf.getvalue()).decode()
+              print(f"=== PREVIEW {path} {im.size[0]}x{im.size[1]} {len(data)} ===")
+              for i in range(0, len(data), 8000):
+                  print(data[i:i + 8000])
+              print("=== END PREVIEW ===")
+          PY
+
       - name: Collect session logs
         if: always()
         run: cp -r ~/.local/share/godot/app_userdata/"SUBLEVEL Playtest"/playtests results/ || true
