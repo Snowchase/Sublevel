@@ -51,15 +51,35 @@ yellow = being handled). Cars waiting on the street queue above the IN gate.
 
 ## 3. The goal
 
-Keep the garage solvent for **7 in-game days** (one day is about 12 real minutes at
-×1, or about 1.5 minutes at ×8). You go bankrupt if your balance ends a day below
-**−$5,000**.
+You run a **small 40-stall garage**. Keep it solvent for **7 in-game days** (one day
+is about 12 real minutes at ×1, or about 1.5 minutes at ×8). You go bankrupt if a
+day ends with your balance below **−$2,000**.
 
-Money comes from parking fees: $4 per in-game hour, scaled by vehicle type, and ×1.5
-during surge events. You pay staff wages daily (Attendant $80, Security $120,
-Maintenance $100) and loan repayments. Decisions move three faction scores (City,
-Police, Shadow), and those scores trigger city events such as police sweeps,
-inspections and black-market nights.
+**Money.** You start with $2,500. Cars pay $3 per in-game hour, scaled by vehicle
+type, and ×1.5 during surge events. Every midnight you pay **rent ($750)**, staff
+wages (Attendant $80, Security $120, Maintenance $100) and any loan repayment. The
+bank lends at most $10,000 in total (L key, $5,000 at a time). Played well, the
+garage clears a few hundred dollars a day. Played carelessly, it loses money.
+
+**Reputation (0–100)** decides how many customers come: 0 means ×0.6 demand, 50
+means ×1.0, and 100 means ×1.4.
+- Each paying customer raises it a little.
+- It drops when a car is turned away for lack of a stall (−1) or gives up in the
+  street queue (−0.5).
+- It drops when you ignore a decision card (−3), when an incident is left until the
+  city fines you (−3), and when a theft goes through (−3).
+
+**Your staff each have a job:**
+- **Attendants** run the entry gate. With none, each car takes 4 s to process and
+  rush-hour queues spill into the street. With one it's 1 s, and with two 0.5 s.
+- **Security** cuts thefts, suspicious vehicles and altercations by 40% per guard
+  (down to 30% of normal). Card choices labelled "Security…" also need a guard.
+- **Maintenance** clears spills, crashes and cracks, and slowly repairs the
+  structure when idle.
+
+**Factions.** Decisions move three faction scores (City, Police, Shadow). Each score
+drifts 15% back toward 0 every midnight. Sustained behavior triggers city events
+such as police sweeps, inspections and black-market nights.
 
 ---
 
@@ -160,8 +180,15 @@ These are deliberate. Most of them are what this playtest is meant to evaluate.
 | Pathing | Per-destination flow fields | Godot's `AStarGrid2D` with congestion weights | Same behavior, much faster in GDScript |
 | Visibility (§8) | Cameras and lights; with none placed, everything is visible | Everything is visible | No camera or light placement yet (needs build mode) |
 | Start time | Midnight | 06:00 | Midnight to 06:00 is nearly empty. Bad first impression. |
+| Starting lot | 24×16, 144 stalls | 16×10, **40 stalls** | Start small; expansion comes with excavation (§9) |
+| Economy | $10,000 start, $4/h, no rent, bankrupt below −$5,000, unlimited loans | $2,500 start, **$3/h**, **$750/day rent**, bankrupt below **−$2,000**, loans capped at $10,000 | Margins thin enough that mistakes matter |
+| Demand | `VehicleArrivals.json` as-is | Curve ×1.7 (`DEMAND_CURVE_SCALE`), then × **reputation** (×0.6–×1.4) | Fills the small lot at rush hour; service quality feeds back into demand |
+| Attendants | Patrol only | Run the entry gate (4 s → 1 s → 0.5 s per car) | Gives the role a purpose |
+| Factions | Accumulate forever | Drift 15% toward 0 each midnight | Events reflect recent behavior, not one old choice |
+| Incident rates | Fixed | Scale with lot size; guards cut crime | A small garage isn't flooded with cards |
+| City-event bursts | 50 cars | Scaled to lot size (14 cars for 40 stalls) | A concert can't wreck reputation unavoidably |
 | Street queue | Arrivals at a full gate are dropped | Up to 8 cars wait on the street for 15 s, then leave ("lost at gate") | Makes demand pressure visible and measurable |
-| Security role | Patrols only | Branches labelled "Security…" need a guard on staff, and a guard walks to the scene | Hypothesis: gives Security a purpose |
+| Security role | Patrols only | Cuts crime incident rates; branches labelled "Security…" need a guard, who walks to the scene | Gives Security a purpose |
 | Unattended incidents | Never expire | Auto-resolve incidents left 2 in-game hours with no staff are fined $50 plus their JSON expiry delta | Makes the Maintenance hire matter |
 | Idle maintenance | — | Slowly repairs structural integrity | Gives Maintenance a job between incidents |
 | City inspection | Broadcast only | Fine of $500 and City −5 if integrity is below 50% | Implements the JSON note |
