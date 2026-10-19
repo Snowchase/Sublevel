@@ -235,16 +235,16 @@ view, save/load.
 ## 8. Automated balance results
 
 Measured by the headless balance report on Godot 4.5.1 in CI. Setup: 40-stall lot,
-3 seeds × 5 full days per row, starter crew. Two simulated players: **attentive**
-answers every card after about 10 s with the best-paying option; **neglectful**
-never answers a card.
+**6 seeds × 5 full days** per row, starter crew. Two simulated players:
+**attentive** answers every card after about 10 s with the best-paying option;
+**neglectful** never answers a card.
 
 | Demand | Attentive profit/day | Neglectful profit/day | Rush-hour peak | Turned away + lost/day (attentive) | Reputation (attentive / neglectful) |
 |---|---|---|---|---|---|
-| ×0.5 | −$155 | −$451 | 54% | 2 | 97 / 10 |
-| **×1** | **+$357** | **−$173** | **81%** | **10** | **90 / 40** |
-| ×1.5 | +$735 | +$314 | 90% | 38 | 49 / 36 |
-| ×2 | +$828 | +$455 | 88% | 44 | 44 / 15 |
+| ×0.5 | −$175 | −$450 | 58% | 3 | 94 / 3 |
+| **×1** | **+$356** | **−$72** | **76%** | **13** | **79 / 14** |
+| ×1.5 | +$707 | +$298 | 88% | 29 | 61 / 23 |
+| ×2 | +$764 | +$502 | 92% | 50 | 34 / 9 |
 
 All four tension targets are met at ×1:
 - Careful play earns a thin profit ($50–400 a day).
@@ -265,8 +265,12 @@ Above ×1.5 demand, both players make money, because the lot is full either way.
 Reputation pulls demand back down as overflow grows. Whether that feels good is a
 question for human playtesting.
 
-Still open: thefts and ignored cards hurt, but no simulated run actually went
-bankrupt within 5 days, so bankruptcy isn't proven yet. A human who also fires
+Still open: neglect loses money (about $430 a day worse than careful play), but
+only slowly. No simulated run went bankrupt within 5 days, and with only 3 seeds
+the neglectful player's result swung from −$9 to −$173 a day, which is why CI now
+uses 6. If losing should feel more threatening, the next levers are a bigger
+reputation penalty for ignored cards or harsher default outcomes in
+`IncidentTypes.json`. A human who also fires
 staff or takes loans may find a different story.
 
 Re-run after any change: `run_tests.bat --balance` (Windows) or
