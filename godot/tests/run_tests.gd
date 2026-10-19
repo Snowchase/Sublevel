@@ -363,8 +363,7 @@ func test_tow_consequence_removes_vehicle() -> bool:
 	check(inc.vehicle_id == v.id and inc.cell == stall, "overstay incident attached to the parked car")
 	var before := sim.balance
 	check(sim.resolve_decision(inc.id, 0), "Tow branch accepted")
-	sim.tick()
-	check(not sim.vehicles.has(v.id), "car towed away")
+	check(not sim.vehicles.has(v.id), "car towed away immediately (no tick needed)")
 	check(sim.grid.stall_owner[sim.grid.idx(stall)] == 0, "stall freed")
 	check(approx(sim.balance - before, 75.0), "towing recovered $75")
 	check(approx(sim.factions["shadow_clients"], -5.0), "shadow -5")
@@ -553,7 +552,7 @@ func test_soak_three_days() -> bool:
 				if invariant_failures <= 3:
 					print("    invariant problems at tick %d: %s" % [sim.tick_count, ", ".join(PackedStringArray(problems))])
 			for v in sim.vehicles.values():
-				if not v.is_parked():
+				if not v.is_parked() and v.state != C.VehicleState.DONE:
 					var stuck: int = sim.tick_count - v.last_move_tick
 					if stuck > max_stuck and stuck >= 1500:
 						print("    stuck %d ticks: %s" % [stuck, _describe_vehicle(sim, v)])

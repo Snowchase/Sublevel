@@ -525,6 +525,7 @@ func _tow_vehicle(vehicle_id: int) -> bool:
 	if v == null or v.state == C.VehicleState.DONE:
 		return false
 	v.tow(self)
+	vehicles.erase(vehicle_id)   # gone now, not next tick (matters while paused)
 	stats["towed"] += 1
 	return true
 
