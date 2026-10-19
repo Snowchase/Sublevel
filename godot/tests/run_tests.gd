@@ -554,7 +554,10 @@ func test_soak_three_days() -> bool:
 					print("    invariant problems at tick %d: %s" % [sim.tick_count, ", ".join(PackedStringArray(problems))])
 			for v in sim.vehicles.values():
 				if not v.is_parked():
-					max_stuck = maxi(max_stuck, sim.tick_count - v.last_move_tick)
+					var stuck: int = sim.tick_count - v.last_move_tick
+					if stuck > max_stuck and stuck >= 1500:
+						print("    stuck %d ticks: %s" % [stuck, _describe_vehicle(sim, v)])
+					max_stuck = maxi(max_stuck, stuck)
 	var usec_per_tick := float(Time.get_ticks_usec() - t0) / total_ticks
 
 	check(invariant_failures == 0, "occupancy/reservation/blocking invariants hold (%d bad samples)" % invariant_failures)
@@ -578,6 +581,27 @@ func test_soak_three_days() -> bool:
 		print("      revenue by source %s · expenses by %s · events %s" % [
 			str(d["revenue_by"]), str(d["expenses_by"]), str(d["city_events"])])
 	return true
+
+
+## Diagnostic snapshot of a vehicle and its surroundings (for stuck cars).
+func _describe_vehicle(sim: Simulation, v) -> String:
+	var grid = sim.grid
+	var parts: Array[String] = []
+	parts.append("car %d %s %s at %s (tile %d) stall %s path %d waiting %s" % [
+		v.id, v.type_name, C.VEHICLE_STATE_NAMES[v.state], v.cell, grid.tile_at(v.cell),
+		v.stall, v.path.size(), v.waiting])
+	if not v.path.is_empty():
+		var nxt: Vector2i = v.path[0]
+		parts.append("next %s blocked=%s cars=%d" % [nxt, grid.is_blocked(nxt), grid.vehicles_on(nxt)])
+	for d in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
+		var n: Vector2i = v.cell + d
+		if grid.in_bounds(n):
+			parts.append("nb %s t%d b%s c%d" % [n, grid.tile_at(n), grid.is_blocked(n), grid.vehicles_on(n)])
+	for inc in sim.incidents.values():
+		if inc.is_open() and absi(inc.cell.x - v.cell.x) + absi(inc.cell.y - v.cell.y) <= 3:
+			parts.append("incident %s at %s state %d staff %d age %d" % [
+				inc.type_name, inc.cell, inc.state, inc.staff_id, sim.tick_count - inc.spawn_tick])
+	return " | ".join(PackedStringArray(parts))
 
 
 ## Cross-checks the grid's bookkeeping against the agents. Returns problem descriptions.
