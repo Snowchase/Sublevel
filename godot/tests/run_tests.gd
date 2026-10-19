@@ -231,6 +231,9 @@ func test_single_vehicle_lifecycle() -> bool:
 	check(sim.grid.stall_owner[sim.grid.idx(v.cell)] == v.id, "stall reserved by this vehicle")
 	check(v.depart_tick - v.park_start >= 400 and v.depart_tick - v.park_start <= 4800,
 		"park duration within VehicleTypes.json bounds")
+	run(sim, 10)
+	check(v.is_parked() and v.move_progress() == 1.0,
+		"parked car is drawn fully inside its stall (visual progress %.2f)" % v.move_progress())
 
 	var stall: Vector2i = v.cell
 	var balance_before := sim.balance
@@ -329,6 +332,13 @@ func test_staff_clears_blocking_incident() -> bool:
 	check(sim.stats["resolved_by_staff"] == 1, "counted as staff-resolved")
 	var worker = sim.staff.values()[0]
 	check(worker.fatigue > 0.0, "working raised fatigue")
+
+	# A worker standing on site must be drawn on their tile, not mid-step.
+	var inc2 = sim.spawn_incident("OilSpill", Vector2i(14, 8))
+	run_until(sim, func(): return worker.cell == inc2.cell, 2000)
+	run(sim, 10)
+	check(inc2.state == C.IncidentState.IN_PROGRESS and worker.move_progress() == 1.0,
+		"worker on site is drawn on the incident tile (visual progress %.2f)" % worker.move_progress())
 	return true
 
 

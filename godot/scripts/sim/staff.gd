@@ -94,6 +94,7 @@ func _work(sim) -> void:
 				# Boxed in (e.g. other incidents block every approach). Retry for
 				# a while, then hand the job back so the incident can't stall forever.
 				_no_route_ticks += 1
+				_settle()
 				if _no_route_ticks >= GIVE_UP_TICKS:
 					if task["kind"] == "resolve" and incident != null and incident.is_open():
 						sim.requeue_incident(incident)
@@ -103,6 +104,7 @@ func _work(sim) -> void:
 		_walk()
 		return
 
+	_settle()   # on site: finish the walk-in animation
 	if task["work_left"] > 0:
 		task["work_left"] -= 1
 		return
@@ -120,6 +122,12 @@ func _patrol(sim) -> void:
 		path = grid.find_path(cell, patrol_target) if patrol_target != C.NO_CELL else path
 	if not path.is_empty():
 		_walk()
+
+
+## Counts the move cooldown down while standing still, so the renderer
+## draws the worker on their tile instead of part-way from the last one.
+func _settle() -> void:
+	cooldown = maxf(cooldown - 1.0, 0.0)
 
 
 func _walk() -> void:

@@ -61,6 +61,10 @@ func tick(sim) -> void:
 		C.VehicleState.SEEKING:
 			_tick_seeking(sim)
 		C.VehicleState.PARKED:
+			# Let the move-into-stall animation finish: the cooldown only
+			# counts down while driving, so without this a parked car stays
+			# drawn part-way between the lane and its stall.
+			cooldown = maxf(cooldown - 1.0, 0.0)
 			if sim.tick_count >= depart_tick:
 				begin_exit(sim)
 		C.VehicleState.EXITING, C.VehicleState.LEAVING_UNSERVED:
