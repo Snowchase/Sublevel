@@ -129,7 +129,7 @@ that came in the zip:
 ```bat
 cd Sublevel\godot
 set GODOT=C:\path\to\Godot_v4.x-stable_win64_console.exe
-run_tests.bat              :: 19 tests
+run_tests.bat              :: 23 tests
 run_tests.bat --balance    :: balance table across demand levels
 ```
 
@@ -142,16 +142,18 @@ The test suite checks:
 - **Vehicle lifecycle:** park, pay, leave; each vehicle type uses the right stall.
 - **Decisions:** branches apply the JSON faction deltas and money; ignored cards fire the default branch; Security-only branches lock without a guard.
 - **Staff and incidents:** maintenance clears blocking incidents; unattended incidents get fined; towing removes the car.
-- **Economy:** day-end wages and loan math; bankruptcy.
+- **Economy:** day-end rent, wages and loan math; loan cap; bankruptcy; faction drift.
+- **Tension mechanics:** reputation scales demand; attendants speed up the gate; guards cut crime; incident rates scale with lot size.
 - **City events:** faction-triggered and scheduled events; surge pricing.
 - **Street queue:** overflow counts as lost cars.
 - **UI smoke test:** the HUD and main scene load and run.
 - **3-day soak:** bookkeeping invariants hold, no car is stuck for long, and the sim is fast enough for ×16.
 
-The balance report simulates 3 days × 3 seeds at demand ×0.5, ×1, ×2 and ×4. It uses
-a simple player policy (starter crew; answer every card after 10 s with the first
-allowed choice) and prints revenue, profit, cars served, turned away and lost, peak
-occupancy and incidents per day. Use `-- --days=7 --seeds=5` for a longer run.
+The balance report simulates 5 full days × 3 seeds at demand ×0.5–×3 for two players:
+an attentive one (answers every card) and a neglectful one (ignores them). It prints
+profit, cars served, turned away and lost, peak and average occupancy, reputation
+and bankruptcies, then marks each tension target HIT or MISS (see section 8). Use
+`-- --days=7 --seeds=5` for a longer run.
 
 Screenshot or demo mode, for checking visuals without playing:
 
@@ -198,38 +200,45 @@ view, save/load.
 
 ---
 
-## 8. First automated playtest results
+## 8. Automated balance results
 
-Measured by the headless balance report on Godot 4.5.1 in CI. Setup: 3 seeds × 3
-full days at each demand level, starter crew, every card answered after about 10 s.
+Measured by the headless balance report on Godot 4.5.1 in CI. Setup: 40-stall lot,
+3 seeds × 5 full days per row, starter crew. Two simulated players: **attentive**
+answers every card after about 10 s with the best-paying option; **neglectful**
+never answers a card.
 
-| Demand | Revenue/day | Costs/day | Profit/day | Cars/day | Peak stalls used | Turned away/day |
-|---|---|---|---|---|---|---|
-| ×0.5 | $858 | $311 | $547 | 37 | 48 / 144 | 0 |
-| **×1 (data as-is)** | **$1,330** | **$311** | **$1,019** | **55** | **50 / 144** | **0.4** |
-| ×2 | $1,940 | $300 | $1,640 | 94 | 63 / 144 | 0 |
-| ×4 | $3,082 | $308 | $2,773 | 158 | 77 / 144 | 0.6 |
+| Demand | Attentive profit/day | Neglectful profit/day | Rush-hour peak | Turned away + lost/day (attentive) | Reputation (attentive / neglectful) |
+|---|---|---|---|---|---|
+| ×0.5 | −$155 | −$451 | 54% | 2 | 97 / 10 |
+| **×1** | **+$357** | **−$173** | **81%** | **10** | **90 / 40** |
+| ×1.5 | +$735 | +$314 | 90% | 38 | 49 / 36 |
+| ×2 | +$828 | +$455 | 88% | 44 | 44 / 15 |
 
-What the numbers say, before any human has played:
+All four tension targets are met at ×1:
+- Careful play earns a thin profit ($50–400 a day).
+- Rush hour fills the lot to at least 75%.
+- Some cars (1–15 a day) are turned away or lost.
+- Neglect loses money.
 
-1. **There's no money pressure.** Revenue is about 4× costs at every demand level,
-   and no run went bankrupt. The 7-day goal is currently a formality.
-2. **The lot never fills.** Even at ×4 demand, peak use is about half the 144 stalls
-   and almost nobody is turned away. The demand curve in `VehicleArrivals.json`
-   (vehicles per real minute) is low for a lot this size.
-3. **Decisions come often.** There are about 20 incidents a day and roughly half need
-   a decision, so a card appears about once a real minute at ×1. That's why
-   auto-pause exists (see Controls).
-4. **Factions swing to the extremes fast.** Always picking the first option pushed
-   Shadow to −100 and Police to +37 within 3 days. Faction-triggered events
-   (PoliceSweep, BlackMarketNight, CityInspection) then never fire unless you
-   deliberately play shady.
-5. **Attendants do nothing mechanically yet**, so hiring them is wasted money.
+How it got here (each round was a CI run):
+1. **Smaller lot only:** reputation collapsed to about 0 for everyone. Concert
+   crowds sized for 144 stalls (50 cars) swamped the street queue and cost
+   reputation the player couldn't prevent. Event crowds now scale with lot size.
+2. **Rebalanced reputation:** 3 of 4 targets hit, but rush hour peaked at only 62%.
+3. **Demand ×1.7, $3/hour:** rush hour at 81%, but careful play earned $457 a day,
+   above the $400 ceiling.
+4. **Rent $750:** all four targets hit.
 
-Possible levers, for you to decide: raise the demand curve about 3×, lengthen
-`park_duration_*` in `VehicleTypes.json`, raise wages or lower `HOURLY_RATE`, and
-shrink the faction deltas in `IncidentTypes.json`. Re-run
-`run_tests.bat --balance` after each change.
+Above ×1.5 demand, both players make money, because the lot is full either way.
+Reputation pulls demand back down as overflow grows. Whether that feels good is a
+question for human playtesting.
+
+Still open: thefts and ignored cards hurt, but no simulated run actually went
+bankrupt within 5 days, so bankruptcy isn't proven yet. A human who also fires
+staff or takes loans may find a different story.
+
+Re-run after any change: `run_tests.bat --balance` (Windows) or
+`./run_tests.sh --balance`. The report prints HIT or MISS for each target.
 
 ## 9. Tuning
 
