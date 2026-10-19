@@ -105,10 +105,10 @@ const REPUTATION_START := 50.0
 const REP_DEMAND_MIN := 0.6
 const REP_DEMAND_MAX := 1.4
 const REP_SERVED := 0.25                        # each paying customer
-const REP_TURNED_AWAY := -1.5                   # drove in, found no stall
-const REP_LOST_AT_GATE := -1.0                  # gave up in the street queue
+const REP_TURNED_AWAY := -1.0                   # drove in, found no stall
+const REP_LOST_AT_GATE := -0.5                  # gave up in the street queue
 const REP_UNATTENDED := -3.0                    # incident left until the city fined you
-const REP_DECISION_IGNORED := -1.5              # decision card timed out
+const REP_DECISION_IGNORED := -3.0              # decision card timed out (customers notice)
 const REP_THEFT := -3.0                         # a theft went through
 
 # Attendants run the entry gate: ticks to process each arriving car,
@@ -128,6 +128,10 @@ const FACTION_DAILY_DECAY := 0.15
 # Smaller lots get fewer: rate × (stalls / 144) ^ exponent.
 const INCIDENT_REFERENCE_STALLS := 144.0
 const INCIDENT_SIZE_EXPONENT := 0.5
+
+# City-event car bursts (ConcertLetout's 50 cars) are also sized for 144
+# stalls; smaller lots get a proportional share of the crowd.
+const EVENT_SPIKE_REFERENCE_STALLS := 144.0
 
 const GOAL_DAYS := 7                            # playtest goal: survive 7 days
 

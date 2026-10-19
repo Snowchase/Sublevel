@@ -22,7 +22,8 @@ const POLICIES := ["attentive", "neglectful"]
 # Tension targets at demand ×1 (the data as shipped).
 const TARGET_PROFIT_MIN := 50.0       # attentive: profitable, but only just
 const TARGET_PROFIT_MAX := 400.0
-const TARGET_PEAK_MIN := 0.85         # attentive: lot ≥ 85% full at the busiest moment
+const TARGET_PEAK_MIN := 0.75         # attentive: lot ≥ 75% full at the busiest moment
+                                      # (~83% is the practical ceiling: stall types fill unevenly)
 const TARGET_OVERFLOW_MIN := 1.0      # attentive: some cars turned away / lost per day
 const TARGET_OVERFLOW_MAX := 15.0     #            …but not a flood
 

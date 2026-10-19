@@ -223,7 +223,8 @@ func _start_event(def: Dictionary) -> void:
 	if type_name == "Rainstorm":
 		rain_active = true
 	if int(def["spike_vehicles"]) > 0:
-		_spike_remaining = int(def["spike_vehicles"])
+		var share := float(grid.stalls.size()) / C.EVENT_SPIKE_REFERENCE_STALLS
+		_spike_remaining = maxi(1, roundi(int(def["spike_vehicles"]) * minf(share, 1.0)))
 		_spike_end_tick = tick_count + maxi(int(def["spike_window_ticks"]), 1)
 		_spike_accum = 0.0
 	if type_name == "PowerGridStrain" and rng.randf() < float(def["power_loss_chance"]):
