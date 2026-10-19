@@ -109,7 +109,7 @@ that came in the zip:
 ```bat
 cd Sublevel\godot
 set GODOT=C:\path\to\Godot_v4.x-stable_win64_console.exe
-run_tests.bat              :: 18 tests
+run_tests.bat              :: 19 tests
 run_tests.bat --balance    :: balance table across demand levels
 ```
 

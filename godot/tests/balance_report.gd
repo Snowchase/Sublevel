@@ -6,6 +6,7 @@ extends SceneTree
 ##   godot --headless --path godot --script res://tests/balance_report.gd
 ##   godot --headless --path godot --script res://tests/balance_report.gd -- --days=7 --seeds=5
 ##
+## Day 1 (06:00-24:00) is a warm-up and is excluded from the averages.
 ## Policy: starter crew (1 attendant, 1 security, 1 maintenance), every
 ## decision answered after ~10s with the first allowed branch, no loans.
 ## Results are also written to user://balance_report.json.
@@ -48,7 +49,7 @@ func _initialize() -> void:
 			end_balance += sim.balance
 			if sim.bankrupt:
 				bankrupt_runs += 1
-			for d in sim.day_history:
+			for d in sim.day_history.slice(1):   # skip the partial warm-up day
 				for key in ["revenue", "expenses", "served", "turned_away", "lost_at_gate",
 						"peak_occupancy", "incidents", "incidents_unattended", "decisions_expired"]:
 					totals[key] = float(totals.get(key, 0.0)) + float(d[key])
@@ -81,9 +82,10 @@ func _run_session(data: DataLoader, session_seed: int, demand: float, days: int)
 	sim.hire_staff(C.Role.ATTENDANT)
 	sim.hire_staff(C.Role.SECURITY)
 	sim.hire_staff(C.Role.MAINTENANCE)
-	var end_tick := sim.tick_count + days * C.TICKS_PER_DAY
-	# Align to the day boundary so every simulated day is a full 24h day
-	end_tick -= end_tick % C.TICKS_PER_DAY
+	# Sessions start at 06:00, so day 1 is partial: run it as warm-up and
+	# then simulate `days` full 24h days (only those are averaged).
+	var first_midnight := sim.tick_count - sim.tick_count % C.TICKS_PER_DAY + C.TICKS_PER_DAY
+	var end_tick := first_midnight + days * C.TICKS_PER_DAY
 	while sim.tick_count < end_tick:
 		sim.tick()
 		var inc = sim.next_decision()

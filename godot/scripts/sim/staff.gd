@@ -26,6 +26,9 @@ var compromised_notified := false
 var task: Dictionary = {}
 var patrol_target := C.NO_CELL
 var next_retarget_tick := 0
+var _no_route_ticks := 0
+
+const GIVE_UP_TICKS := 200   # job unreachable this long → hand it back
 
 
 func setup(staff_id: int, staff_role: int, staff_trait: int, start_cell: Vector2i) -> void:
@@ -64,6 +67,7 @@ func move_progress() -> float:
 func assign(kind: String, incident_id: int, target: Vector2i, work_ticks: int) -> void:
 	task = {"kind": kind, "incident_id": incident_id, "target": target, "work_left": work_ticks}
 	path.clear()
+	_no_route_ticks = 0
 
 
 func tick(sim) -> void:
@@ -87,7 +91,15 @@ func _work(sim) -> void:
 		if path.is_empty():
 			path = sim.grid.find_path(cell, target)
 			if path.is_empty():
-				return   # no route right now — try again next tick
+				# Boxed in (e.g. other incidents block every approach). Retry for
+				# a while, then hand the job back so the incident can't stall forever.
+				_no_route_ticks += 1
+				if _no_route_ticks >= GIVE_UP_TICKS:
+					if task["kind"] == "resolve" and incident != null and incident.is_open():
+						sim.requeue_incident(incident)
+					task = {}
+				return
+		_no_route_ticks = 0
 		_walk()
 		return
 

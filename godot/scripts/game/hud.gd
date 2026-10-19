@@ -15,7 +15,6 @@ signal fire_requested(role: int)
 signal loan_requested
 signal speed_step_requested(step: int)
 signal pause_toggled
-signal restart_requested
 
 const LEFT_W := 268.0
 const RIGHT_W := 300.0
@@ -48,7 +47,6 @@ var _right_panel: PanelContainer
 var _top_panel: PanelContainer
 
 var _slow_refresh := 0.0
-var _decision_shown_id := -1
 var overlay_visible := false
 
 
@@ -358,7 +356,6 @@ func _refresh_decision() -> void:
 	var inc = sim.next_decision()
 	if inc == null:
 		_decision_panel.visible = false
-		_decision_shown_id = -1
 		return
 	_decision_panel.visible = true
 	var more: int = sim.pending_decision_count() - 1
@@ -366,15 +363,13 @@ func _refresh_decision() -> void:
 	var info := "Severity %d%%" % int(inc.severity * 100)
 	if more > 0:
 		info += "   ·   %d more decision(s) waiting" % more
-	var default_idx := int(inc.def.get("default_branch", 0))
 	var branches: Array = inc.def.get("branches", [])
-	if default_idx < branches.size():
-		info += "   ·   if ignored: %s" % branches[default_idx]["label"]
+	var fallback: int = sim.expiry_branch(inc)   # what actually fires on timeout
+	if fallback >= 0:
+		info += "   ·   if ignored: %s" % branches[fallback]["label"]
 	_decision_info.text = info
 
-	if _decision_shown_id == inc.id:
-		return   # buttons already built for this incident
-	_decision_shown_id = inc.id
+	# Rebuilt every frame: availability changes when Security is hired or fired.
 	for i in _branch_buttons.size():
 		var b := _branch_buttons[i]
 		if i >= branches.size():

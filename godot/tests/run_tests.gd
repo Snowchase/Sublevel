@@ -24,6 +24,7 @@ const TESTS := [
 	"test_staff_clears_blocking_incident",
 	"test_unattended_incident_is_fined",
 	"test_tow_consequence_removes_vehicle",
+	"test_firing_busy_worker_requeues_incident",
 	"test_day_end_wages_and_loan",
 	"test_bankruptcy",
 	"test_city_events",
@@ -294,6 +295,7 @@ func test_security_gated_branches() -> bool:
 	check(not sim.is_branch_available(inc, 0), "Security branch locked with no guard on staff")
 	check(not sim.resolve_decision(inc.id, 0), "locked branch rejected")
 	check(sim.is_branch_available(inc, 1), "non-security branch available")
+	check(sim.expiry_branch(inc) == 1, "card reports 'Call Police' as the real if-ignored outcome")
 
 	# Expiry with no guard falls back to the first available branch.
 	run(sim, 701)
@@ -356,6 +358,29 @@ func test_tow_consequence_removes_vehicle() -> bool:
 	check(sim.grid.stall_owner[sim.grid.idx(stall)] == 0, "stall freed")
 	check(approx(sim.balance - before, 75.0), "towing recovered $75")
 	check(approx(sim.factions["shadow_clients"], -5.0), "shadow -5")
+
+	# No parked car → the incident lands on a lane; towing it must not pay.
+	var empty := quiet_sim(77)
+	var ghost = empty.spawn_incident("OverstayVehicle")
+	check(ghost.vehicle_id == 0, "overstay with no parked cars has no vehicle")
+	var before_empty := empty.balance
+	empty.resolve_decision(ghost.id, 0)
+	check(approx(empty.balance, before_empty), "towing nothing recovers nothing (got %+.2f)" % (empty.balance - before_empty))
+	return true
+
+
+func test_firing_busy_worker_requeues_incident() -> bool:
+	var sim := quiet_sim()
+	sim.hire_staff(C.Role.MAINTENANCE)
+	var inc = sim.spawn_incident("FenderBender", Vector2i(12, 8))
+	run(sim, 2)
+	check(inc.state == C.IncidentState.IN_PROGRESS, "maintenance dispatched")
+	inc.spawn_tick = sim.tick_count - C.AUTO_INCIDENT_TIMEOUT - 100   # an old incident
+	check(sim.fire_staff(C.Role.MAINTENANCE), "busy worker let go")
+	check(inc.state == C.IncidentState.ACTIVE and inc.staff_id == 0, "incident back in the queue")
+	run(sim, 5)
+	check(inc.state == C.IncidentState.ACTIVE, "re-queued incident isn't fined instantly for being old")
+	check(sim.stats["incidents_unattended"] == 0, "no unattended fine")
 	return true
 
 

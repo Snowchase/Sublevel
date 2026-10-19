@@ -65,7 +65,6 @@ func _ready() -> void:
 	hud.loan_requested.connect(_take_loan)
 	hud.speed_step_requested.connect(_step_speed)
 	hud.pause_toggled.connect(_toggle_pause)
-	hud.restart_requested.connect(_restart)
 
 	_start_session()
 
@@ -372,6 +371,12 @@ func _pan_with_keys(delta: float) -> void:
 func _save_screenshot(path: String, quit_after: bool) -> void:
 	await RenderingServer.frame_post_draw
 	var img := get_viewport().get_texture().get_image()
+	if img == null:
+		# --headless uses a dummy renderer with no pixels; run under a display (or xvfb).
+		push_error("Screenshot unavailable: no rendered image (running --headless?)")
+		if quit_after:
+			get_tree().quit(1)
+		return
 	var err := img.save_png(path)
 	if err == OK:
 		print("[SUBLEVEL] Screenshot saved: %s" % ProjectSettings.globalize_path(path))

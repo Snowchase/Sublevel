@@ -464,14 +464,21 @@ func resolve_decision(incident_id: int, branch_index: int) -> bool:
 	return true
 
 
-func _expire_decision(inc: Incident) -> void:
+## Branch that fires if the card times out: the JSON default, or the first
+## available branch when the default is locked (e.g. no Security on staff).
+## -1 if none is available.
+func expiry_branch(inc: Incident) -> int:
 	var branch := int(inc.def.get("default_branch", 0))
-	if not is_branch_available(inc, branch):
-		branch = -1
-		for i in inc.def.get("branches", []).size():
-			if is_branch_available(inc, i):
-				branch = i
-				break
+	if is_branch_available(inc, branch):
+		return branch
+	for i in inc.def.get("branches", []).size():
+		if is_branch_available(inc, i):
+			return i
+	return -1
+
+
+func _expire_decision(inc: Incident) -> void:
+	var branch := expiry_branch(inc)
 	if branch >= 0:
 		_apply_branch(inc, branch, true)
 	_close_incident(inc, C.IncidentState.EXPIRED)
@@ -504,19 +511,30 @@ func _apply_branch(inc: Incident, branch_index: int, expired: bool) -> void:
 ## Monetary side effects of branch consequence tags (UE: ApplyConsequence).
 func _apply_consequence(inc: Incident, tag: String) -> void:
 	var money := float(C.CONSEQUENCE_MONEY.get(tag, 0.0))
+	if tag in C.TOW_CONSEQUENCES and not _tow_vehicle(inc.vehicle_id):
+		money = 0.0   # nothing to tow (car already left) — nothing recovered
 	if money > 0.0:
 		_earn(money, "shadow" if tag == "vehicle_stays_shadow_credit" else "decisions")
 	elif money < 0.0:
 		_spend(-money, "losses")
-	if tag in C.TOW_CONSEQUENCES:
-		_tow_vehicle(inc.vehicle_id)
 
 
-func _tow_vehicle(vehicle_id: int) -> void:
+## Returns true if a car was removed.
+func _tow_vehicle(vehicle_id: int) -> bool:
 	var v = vehicles.get(vehicle_id)
-	if v != null and v.state != C.VehicleState.DONE:
-		v.tow(self)
-		stats["towed"] += 1
+	if v == null or v.state == C.VehicleState.DONE:
+		return false
+	v.tow(self)
+	stats["towed"] += 1
+	return true
+
+
+## Puts an incident back in the dispatch queue with a fresh unattended
+## clock (its worker was let go or couldn't reach it).
+func requeue_incident(inc: Incident) -> void:
+	inc.state = C.IncidentState.ACTIVE
+	inc.staff_id = 0
+	inc.spawn_tick = tick_count
 
 
 func _expire_auto_incident(inc: Incident) -> void:
@@ -584,8 +602,7 @@ func fire_staff(role: int) -> bool:
 	if not pick.is_idle() and pick.task["kind"] == "resolve":
 		var inc = incidents.get(pick.task["incident_id"])
 		if inc != null and inc.is_open():
-			inc.state = C.IncidentState.ACTIVE
-			inc.staff_id = 0
+			requeue_incident(inc)
 	staff.erase(pick.id)
 	log_message("Let go %s." % pick.display_name, "warn")
 	return true

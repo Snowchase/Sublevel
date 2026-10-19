@@ -120,6 +120,7 @@ func begin_exit(sim) -> void:
 	state = C.VehicleState.EXITING
 	path = sim.grid.find_path(cell, sim.grid.exit_gate)
 	cooldown = 0.0
+	last_move_tick = sim.tick_count   # parked time isn't "stuck" time
 
 
 func leave_unserved(sim) -> void:
@@ -128,6 +129,7 @@ func leave_unserved(sim) -> void:
 		stall = C.NO_CELL
 	state = C.VehicleState.LEAVING_UNSERVED
 	path = sim.grid.find_path(cell, sim.grid.exit_gate)
+	last_move_tick = sim.tick_count
 
 
 func _tick_driving_out(sim) -> void:
