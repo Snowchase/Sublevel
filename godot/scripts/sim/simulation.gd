@@ -155,7 +155,7 @@ func _update_demand() -> void:
 	var multiplier := 1.0
 	for e in active_events:
 		multiplier *= maxf(float(e["def"]["demand_multiplier"]), 0.0)
-	current_lambda = base * multiplier * demand_scale * reputation_multiplier()
+	current_lambda = base * C.DEMAND_CURVE_SCALE * multiplier * demand_scale * reputation_multiplier()
 
 
 ## Demand multiplier from reputation: 0 → ×0.6, 50 → ×1.0, 100 → ×1.4.

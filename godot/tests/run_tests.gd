@@ -538,7 +538,7 @@ func test_city_events() -> bool:
 	sim.tick()
 	check(sim.event_active("PoliceSweep"), "PoliceSweep starts when police <= -30")
 	sim.tick()   # demand is recomputed at the start of the next tick
-	var base: float = data.weekday_curve[10]
+	var base: float = data.weekday_curve[10] * C.DEMAND_CURVE_SCALE
 	check(approx(sim.current_lambda, base * 0.4, 0.001) or sim.active_events.size() > 1,
 		"PoliceSweep cuts demand to ×0.4 (λ %.2f vs %.2f)" % [sim.current_lambda, base * 0.4])
 

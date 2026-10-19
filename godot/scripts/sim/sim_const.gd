@@ -72,9 +72,13 @@ const FACTION_LABELS := {"city_authority": "City", "police": "Police", "shadow_c
 # Values marked (UE) match the Unreal build. Others are playtest-only
 # hypotheses — they are the knobs this playtest is meant to evaluate.
 const START_LOT_SIZE := Vector2i(16, 10)        # 40 stalls; UE test lot is 24×16 (144)
+# Multiplies the arrival curve in VehicleArrivals.json for this playtest
+# (that file is shared with UE, so it's left unchanged). At 1.7 the
+# 40-stall lot fills to ~75%+ at rush hour.
+const DEMAND_CURVE_SCALE := 1.7
 const STARTING_BALANCE := 2500.0                # UE: 10000
-const DAILY_RENT := 600.0                       # lease + utilities, paid at midnight
-const HOURLY_RATE := 4.0                        # (UE) $ per in-game hour
+const DAILY_RENT := 650.0                       # lease + utilities, paid at midnight
+const HOURLY_RATE := 3.0                        # UE: 4. $ per in-game hour
 const MIN_BILLED_HOURS := 0.25                  # (UE) 15-minute minimum
 const SURGE_MULTIPLIER := 1.5                   # (UE)
 const LOAN_AMOUNT := 5000.0                     # one press of the loan key
