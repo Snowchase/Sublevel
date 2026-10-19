@@ -1,0 +1,7 @@
+# gdtoolkit (gdlint) settings for the playtest build.
+# Ordering and method-count rules are style-only and disabled; the
+# parser still catches every syntax error.
+disable:
+  - class-definitions-order
+  - max-public-methods
+max-line-length: 160

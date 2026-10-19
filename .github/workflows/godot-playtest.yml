@@ -1,0 +1,110 @@
+name: Godot playtest
+
+# Runs the Godot playtest build's headless test suite and balance report, and
+# captures a gameplay screenshot under a virtual display. Download the
+# "godot-playtest-results" artifact from the run page to see the outputs.
+
+on:
+  push:
+    paths:
+      - "godot/**"
+      - "Data/**"
+      - ".github/workflows/godot-playtest.yml"
+  pull_request:
+    paths:
+      - "godot/**"
+      - "Data/**"
+  workflow_dispatch:
+
+env:
+  GODOT_VERSION: "4.5.1"
+
+jobs:
+  playtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: ~/godot
+          key: godot-${{ env.GODOT_VERSION }}-linux-x86_64
+
+      - name: Download Godot ${{ env.GODOT_VERSION }}
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/godot
+          cd ~/godot
+          curl -fsSL -o godot.zip \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q godot.zip
+          rm godot.zip
+          mv Godot_v${GODOT_VERSION}-stable_linux.x86_64 godot
+          chmod +x godot
+
+      - name: Godot version
+        run: ~/godot/godot --version
+
+      - name: Import project (first-run asset import)
+        run: timeout 180 ~/godot/godot --headless --path godot --import 2>&1 | tail -20 || true
+
+      - name: Headless test suite
+        run: |
+          mkdir -p results
+          set -o pipefail
+          timeout 600 ~/godot/godot --headless --path godot --script res://tests/run_tests.gd 2>&1 | tee results/tests.txt
+
+      - name: Balance report
+        if: always()
+        run: |
+          set -o pipefail
+          timeout 600 ~/godot/godot --headless --path godot --script res://tests/balance_report.gd -- --days=3 --seeds=3 2>&1 | tee results/balance.txt
+          cp ~/.local/share/godot/app_userdata/"SUBLEVEL Playtest"/balance_report.json results/ || true
+
+      - name: Install virtual display
+        if: always()
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libgl1 libegl1 libgl1-mesa-dri libglx-mesa0 \
+            libxcursor1 libxinerama1 libxrandr2 libxi6 libxkbcommon0 libfontconfig1 > /dev/null
+
+      - name: Gameplay screenshots
+        if: always()
+        run: |
+          mkdir -p results
+          for spec in "early:7:1:1200" "busy:7:3:5000" "rush:11:6:9000"; do
+            IFS=: read -r name seed demand warmup <<< "$spec"
+            timeout 120 xvfb-run -a -s "-screen 0 1280x720x24" \
+              ~/godot/godot --path godot --rendering-driver opengl3 --audio-driver Dummy \
+              -- --seed=$seed --demand=$demand --warmup-ticks=$warmup --autoplay --speed=2 \
+                 --screenshot="$GITHUB_WORKSPACE/results/screenshot_${name}.png" --screenshot-frames=45 \
+              2>&1 | tee "results/screenshot_${name}.log" || true
+          done
+          ls -la results
+
+      - name: Collect session logs
+        if: always()
+        run: cp -r ~/.local/share/godot/app_userdata/"SUBLEVEL Playtest"/playtests results/ || true
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## Godot playtest — tests"
+            echo '```'
+            grep -E "^(PASS|FAIL)|checks passed|^    " results/tests.txt || cat results/tests.txt
+            echo '```'
+            echo "## Balance report"
+            echo '```'
+            cat results/balance.txt || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: godot-playtest-results
+          path: results/

@@ -1,0 +1,25 @@
+; Engine configuration file.
+; SUBLEVEL — Godot playtest build.
+; Targets Godot 4.3+; newer 4.x versions open it and upgrade in place.
+
+config_version=5
+
+[application]
+
+config/name="SUBLEVEL Playtest"
+config/description="2D playtest build of the SUBLEVEL parking-garage simulator. Reads ../Data/*.json."
+run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.3", "GL Compatibility")
+config/icon="res://icon.svg"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/aspect="expand"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+environment/defaults/default_clear_color=Color(0.05, 0.05, 0.07, 1)
