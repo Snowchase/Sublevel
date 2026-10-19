@@ -457,6 +457,18 @@ func test_hud_and_main_scene_smoke() -> bool:
 	var main = load("res://scenes/main.tscn").instantiate()
 	root.add_child(main)
 	check(main.sim != null and main.sim.staff.size() == 3, "main scene starts a session with the starter crew")
+
+	# Auto-pause: a new decision pauses the game; answering the last one resumes it.
+	check(main.auto_pause, "auto-pause is on by default")
+	main.sim.spawn_incident("SuspiciousVehicle")
+	check(main.paused, "a new decision card pauses the game")
+	var paused_tick: int = main.sim.tick_count
+	main._process(0.5)
+	check(main.sim.tick_count == paused_tick, "no sim ticks while paused for a decision")
+	main._choose_branch(1)   # Look the Other Way — never gated
+	check(not main.paused, "answering the last pending decision resumes play")
+	main.auto_pause = false  # keep the timing check below deterministic
+
 	var t0: int = main.sim.tick_count
 	for _i in 10:
 		main._process(0.1)

@@ -176,7 +176,7 @@ func _build() -> void:
 	_help_label = Label.new()
 	_help_label.add_theme_font_size_override("font_size", 11)
 	_help_label.add_theme_color_override("font_color", Color(0.55, 0.57, 0.62))
-	_help_label.text = "Space pause · +/- speed · 1-3 decide · F1-F3 hire (Shift = fire) · L loan" \
+	_help_label.text = "Space pause · P auto-pause · +/- speed · 1-3 decide · F1-F3 hire (Shift = fire) · L loan" \
 		+ " · [ ] demand · WASD/drag pan · wheel zoom · Tab summary · F12 screenshot"
 	add_child(_help_label)
 

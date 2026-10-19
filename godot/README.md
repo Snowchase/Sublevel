@@ -25,6 +25,7 @@ compiles. The Unreal code is untouched.
 | Key / mouse | Action |
 |---|---|
 | **Space** | Pause / resume |
+| **P** | Toggle auto-pause: the game pauses when a decision card appears and resumes when you've answered them all (on by default, because card timers run on game time and expire in seconds at ×8) |
 | **+ / −** | Speed ×1 · ×2 · ×4 · ×8 · ×16 |
 | **1 / 2 / 3** or click | Choose a branch on the red decision card |
 | **F1 / F2 / F3** | Hire Attendant / Security / Maintenance (hold **Shift** to let one go) |

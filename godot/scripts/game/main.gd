@@ -12,6 +12,7 @@ extends Node2D
 ##   --screenshot-frames=N  (default 30)
 ##   --spawn-incident=TYPE  spawn one incident at start (e.g. SuspiciousVehicle)
 ##   --show-summary      open the session summary overlay at start
+##   --no-autopause      don't pause when a decision card appears
 
 const C = preload("res://scripts/sim/sim_const.gd")
 const Simulation = preload("res://scripts/sim/simulation.gd")
@@ -40,6 +41,8 @@ var _opts: Dictionary = {}
 var _frame := 0
 var _dragging := false
 var _end_overlay_shown := false
+var auto_pause := true             # pause when a decision card appears (P toggles)
+var _paused_for_decision := false
 
 
 func _ready() -> void:
@@ -87,6 +90,10 @@ func _start_session() -> void:
 	view.sim = sim
 	hud.sim = sim
 	sim.day_ended.connect(_on_day_ended)
+	sim.decision_required.connect(_on_decision_required)
+	auto_pause = not _opts.has("no-autopause")
+	_paused_for_decision = false
+	paused = false
 
 	if not ok:
 		for e in sim.setup_errors:
@@ -101,7 +108,7 @@ func _start_session() -> void:
 
 	logger = PlaytestLogger.new()
 	logger.start(sim, {"demand_scale": demand_scale, "speed": SPEEDS[speed_index],
-		"autoplay": _opts.has("autoplay"), "data_dir": sim.data.data_dir})
+		"autoplay": _opts.has("autoplay"), "auto_pause": auto_pause, "data_dir": sim.data.data_dir})
 	print("[SUBLEVEL] Session seed %d — log: %s" % [session_seed, logger.absolute_path()])
 
 	for _i in int(_opts.get("warmup-ticks", "0")):
@@ -181,6 +188,26 @@ func _choose_branch(index: int) -> void:
 		return
 	if sim.resolve_decision(inc.id, index):
 		logger.note(sim, "decision", {"incident": inc.type_name, "branch": index})
+		if _paused_for_decision and sim.next_decision() == null:
+			_paused_for_decision = false
+			paused = false
+			_update_speed_text()
+
+
+## Decision timers run on game time, so at ×8 a 45s card lasts under 6 real
+## seconds. Auto-pause gives the player time to read it (toggle with P).
+func _on_decision_required(_incident) -> void:
+	if auto_pause and not _opts.has("autoplay") and not paused:
+		paused = true
+		_paused_for_decision = true
+		_update_speed_text()
+
+
+func _toggle_auto_pause() -> void:
+	auto_pause = not auto_pause
+	sim.log_message("Auto-pause on decisions: %s" % ("ON" if auto_pause else "OFF"), "info")
+	logger.note(sim, "auto_pause", auto_pause)
+	_update_speed_text()
 
 
 func _hire(role: int) -> void:
@@ -214,6 +241,7 @@ func _step_speed(step: int) -> void:
 
 func _toggle_pause() -> void:
 	paused = not paused
+	_paused_for_decision = false
 	_update_speed_text()
 
 
@@ -230,7 +258,14 @@ func _fmt_scale(v: float) -> String:
 
 
 func _update_speed_text() -> void:
-	hud.speed_text = "PAUSED" if paused else "Speed ×%d" % SPEEDS[speed_index]
+	if _paused_for_decision:
+		hud.speed_text = "PAUSED — decide (1-3)"
+	elif paused:
+		hud.speed_text = "PAUSED"
+	else:
+		hud.speed_text = "Speed ×%d" % SPEEDS[speed_index]
+	if not auto_pause:
+		hud.speed_text += " · auto-pause off"
 	hud.demand_scale_text = _fmt_scale(demand_scale)
 
 
@@ -269,6 +304,8 @@ func _handle_key(k: InputEventKey) -> void:
 	match k.keycode:
 		KEY_SPACE:
 			_toggle_pause()
+		KEY_P:
+			_toggle_auto_pause()
 		KEY_EQUAL, KEY_PLUS, KEY_KP_ADD:
 			_step_speed(1)
 		KEY_MINUS, KEY_KP_SUBTRACT:
