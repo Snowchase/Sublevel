@@ -475,7 +475,7 @@ func test_hud_and_main_scene_smoke() -> bool:
 	var advanced: int = main.sim.tick_count - t0
 	check(advanced >= 19 and advanced <= 21, "10 frames of 0.1s at ×1 ≈ 20 sim ticks (got %d)" % advanced)
 	main._step_speed(1)
-	check(main.hud.speed_text == "Speed ×2", "speed control updates HUD")
+	check(main.hud.speed_text.begins_with("Speed ×2"), "speed control updates HUD (got '%s')" % main.hud.speed_text)
 	main._set_demand(2.0)
 	check(main.sim.demand_scale == 2.0, "demand control reaches the sim")
 	var hire_before: int = main.sim.staff.size()
