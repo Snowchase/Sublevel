@@ -139,6 +139,15 @@ Screenshot or demo mode, for checking visuals without playing:
 "%GODOT%" --path . -- --seed=7 --warmup-ticks=3000 --autoplay --screenshot=shot.png
 ```
 
+Screenshots need a real window; they don't work with `--headless`. Add
+`--spawn-incident=SuspiciousVehicle` to capture a decision card, or
+`--show-summary` to capture the summary screen.
+
+**CI:** `.github/workflows/godot-playtest.yml` runs the tests, the balance report and
+five screenshots on every push that touches `godot/` or `Data/`. Open the run on
+GitHub's **Actions** tab. The summary page shows the test and balance tables, and
+the **godot-playtest-results** download has the screenshots and session logs.
+
 ---
 
 ## 7. How this build differs from the Unreal build
@@ -162,7 +171,40 @@ view, save/load.
 
 ---
 
-## 8. Tuning
+## 8. First automated playtest results
+
+Measured by the headless balance report on Godot 4.5.1 in CI. Setup: 3 seeds × 3
+full days at each demand level, starter crew, every card answered after about 10 s.
+
+| Demand | Revenue/day | Costs/day | Profit/day | Cars/day | Peak stalls used | Turned away/day |
+|---|---|---|---|---|---|---|
+| ×0.5 | $858 | $311 | $547 | 37 | 48 / 144 | 0 |
+| **×1 (data as-is)** | **$1,330** | **$311** | **$1,019** | **55** | **50 / 144** | **0.4** |
+| ×2 | $1,940 | $300 | $1,640 | 94 | 63 / 144 | 0 |
+| ×4 | $3,082 | $308 | $2,773 | 158 | 77 / 144 | 0.6 |
+
+What the numbers say, before any human has played:
+
+1. **There's no money pressure.** Revenue is about 4× costs at every demand level,
+   and no run went bankrupt. The 7-day goal is currently a formality.
+2. **The lot never fills.** Even at ×4 demand, peak use is about half the 144 stalls
+   and almost nobody is turned away. The demand curve in `VehicleArrivals.json`
+   (vehicles per real minute) is low for a lot this size.
+3. **Decisions come often.** There are about 20 incidents a day and roughly half need
+   a decision, so a card appears about once a real minute at ×1. That's why
+   auto-pause exists (see Controls).
+4. **Factions swing to the extremes fast.** Always picking the first option pushed
+   Shadow to −100 and Police to +37 within 3 days. Faction-triggered events
+   (PoliceSweep, BlackMarketNight, CityInspection) then never fire unless you
+   deliberately play shady.
+5. **Attendants do nothing mechanically yet**, so hiring them is wasted money.
+
+Possible levers, for you to decide: raise the demand curve about 3×, lengthen
+`park_duration_*` in `VehicleTypes.json`, raise wages or lower `HOURLY_RATE`, and
+shrink the faction deltas in `IncidentTypes.json`. Re-run
+`run_tests.bat --balance` after each change.
+
+## 9. Tuning
 
 - **Design data:** edit `../Data/*.json`. These changes apply to both builds.
 - **Playtest-only knobs:** `scripts/sim/sim_const.gd`, section "Playtest tuning".
