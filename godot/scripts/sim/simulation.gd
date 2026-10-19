@@ -627,7 +627,11 @@ func hire_staff(role: int) -> Staff:
 		return null
 	var s := Staff.new()
 	var trait_id := rng.randi_range(0, C.TRAIT_NAMES.size() - 1)
-	s.setup(_next_staff_id, role, trait_id, grid.entry_gate)
+	# Start just inside the entrance, not on the gate tile (keeps the IN label visible).
+	var start := grid.entry_gate + Vector2i(0, 1)
+	if not grid.is_passable(start):
+		start = grid.entry_gate
+	s.setup(_next_staff_id, role, trait_id, start)
 	_next_staff_id += 1
 	staff[s.id] = s
 	log_message("Hired %s (%s). Wage $%d/day." % [s.display_name, C.TRAIT_NAMES[trait_id], int(C.STAFF_WAGES[role])], "good")
