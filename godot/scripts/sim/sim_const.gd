@@ -77,7 +77,7 @@ const START_LOT_SIZE := Vector2i(16, 10)        # 40 stalls; UE test lot is 24×
 # 40-stall lot fills to ~75%+ at rush hour.
 const DEMAND_CURVE_SCALE := 1.7
 const STARTING_BALANCE := 2500.0                # UE: 10000
-const DAILY_RENT := 650.0                       # lease + utilities, paid at midnight
+const DAILY_RENT := 750.0                       # lease + utilities, paid at midnight
 const HOURLY_RATE := 3.0                        # UE: 4. $ per in-game hour
 const MIN_BILLED_HOURS := 0.25                  # (UE) 15-minute minimum
 const SURGE_MULTIPLIER := 1.5                   # (UE)
