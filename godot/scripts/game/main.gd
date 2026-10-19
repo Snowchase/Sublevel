@@ -227,8 +227,8 @@ func _hire_or_fire(role: int, fire: bool) -> void:
 
 
 func _take_loan() -> void:
-	sim.take_loan()
-	logger.note(sim, "loan", C.LOAN_AMOUNT)
+	if sim.take_loan():
+		logger.note(sim, "loan", C.LOAN_AMOUNT)
 
 
 func _step_speed(step: int) -> void:
@@ -343,10 +343,14 @@ func _handle_key(k: InputEventKey) -> void:
 # ── Camera ───────────────────────────────────────────────────────
 
 func _center_camera() -> void:
-	camera.zoom = Vector2(0.9, 0.9)
-	# Centre the lot in the gap between the left and right HUD panels.
+	# Fit the lot into the gap between the HUD panels and above the decision card.
+	var vp := get_viewport().get_visible_rect().size
+	var free := Vector2(vp.x - Hud.LEFT_W - Hud.RIGHT_W - 60.0, vp.y - 60.0 - 230.0)
+	var lot := view.grid_pixel_size()
+	var z := clampf(minf(free.x / lot.x, free.y / lot.y), 0.5, 1.6)
+	camera.zoom = Vector2(z, z)
 	var panel_bias := (Hud.RIGHT_W - Hud.LEFT_W) * 0.5
-	camera.position = view.grid_pixel_size() * 0.5 + Vector2(panel_bias, -10.0) / camera.zoom
+	camera.position = lot * 0.5 + Vector2(panel_bias, 70.0) / camera.zoom
 
 
 func _zoom(factor: float) -> void:

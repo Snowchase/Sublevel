@@ -60,12 +60,15 @@ func is_passable(cell: Vector2i) -> bool:
 
 
 # ── Layout ───────────────────────────────────────────────────────
-# Same test lot as AParkingFloor::GenerateDefaultLayout:
+# Same structure as AParkingFloor::GenerateDefaultLayout, at any size:
 #   row 0         wall, entry gate at W/4, exit gate at 3W/4
 #   rows 1-2      lane corridor
 #   rows 3..H-3   [stall][stall][lane] repeating
 #   row H-2       lane corridor, row H-1 wall
 #   cols 1-2 and W-3..W-2 vertical lanes, cols 0 and W-1 wall
+# Stall columns (x = 3..W-4) are split left→right into compact, standard,
+# oversized, motorcycle and disabled bands sized to the vehicle mix:
+#   24×16 → 144 stalls (32/72/24/8/8)    16×10 → 40 stalls (8/16/8/4/4)
 
 func generate_default_layout(w: int = 24, h: int = 16) -> void:
 	width = w
@@ -81,6 +84,8 @@ func generate_default_layout(w: int = 24, h: int = 16) -> void:
 	stall_owner.fill(0)
 	stalls.clear()
 
+	var bands := _stall_bands(w - 6)
+
 	for y in h:
 		for x in w:
 			var cell := Vector2i(x, y)
@@ -94,18 +99,8 @@ func generate_default_layout(w: int = 24, h: int = 16) -> void:
 				var lane_row := (y - 3) % 3 == 2
 				if vertical_lane or top_corridor or bottom_corridor or lane_row:
 					t = C.Tile.LANE
-				elif x <= 6:
-					t = C.Tile.STALL_COMPACT
-				elif x <= 14:
-					t = C.Tile.STALL_STANDARD
-				elif x <= 17:
-					t = C.Tile.STALL_OVERSIZED
-				elif x == 18:
-					t = C.Tile.STALL_MOTORCYCLE
-				elif x == 19:
-					t = C.Tile.STALL_DISABLED
 				else:
-					t = C.Tile.STALL_STANDARD
+					t = bands[x - 3]
 			types[idx(cell)] = t
 			if C.is_stall(t):
 				stalls.append(cell)
@@ -117,6 +112,27 @@ func generate_default_layout(w: int = 24, h: int = 16) -> void:
 
 	_rebuild_astar()
 	_compute_reachability()
+
+
+## Stall type for each stall column, left to right. Shares follow the
+## spawn mix in VehicleTypes.json: ~22% compact, ~18% oversized (SUVs and
+## vans), one motorcycle and one disabled column, the rest standard.
+func _stall_bands(columns: int) -> Array[int]:
+	var compact := maxi(1, roundi(columns * 0.22))
+	var oversized := maxi(1, roundi(columns * 0.18))
+	var standard := maxi(1, columns - compact - oversized - 2)
+	var out: Array[int] = []
+	for _i in compact:
+		out.append(C.Tile.STALL_COMPACT)
+	for _i in standard:
+		out.append(C.Tile.STALL_STANDARD)
+	for _i in oversized:
+		out.append(C.Tile.STALL_OVERSIZED)
+	out.append(C.Tile.STALL_MOTORCYCLE)
+	out.append(C.Tile.STALL_DISABLED)
+	while out.size() < columns:   # tiny lots: pad with standard
+		out.insert(compact, C.Tile.STALL_STANDARD)
+	return out
 
 
 func _rebuild_astar() -> void:

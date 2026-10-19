@@ -61,7 +61,7 @@ jobs:
         if: always()
         run: |
           set -o pipefail
-          timeout 600 ~/godot/godot --headless --path godot --script res://tests/balance_report.gd -- --days=3 --seeds=3 2>&1 | tee results/balance.txt
+          timeout 600 ~/godot/godot --headless --path godot --script res://tests/balance_report.gd -- --days=5 --seeds=3 2>&1 | tee results/balance.txt
           cp ~/.local/share/godot/app_userdata/"SUBLEVEL Playtest"/balance_report.json results/ || true
 
       - name: Install virtual display

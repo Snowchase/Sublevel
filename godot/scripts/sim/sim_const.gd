@@ -71,14 +71,17 @@ const FACTION_LABELS := {"city_authority": "City", "police": "Police", "shadow_c
 # ── Playtest tuning ──────────────────────────────────────────────
 # Values marked (UE) match the Unreal build. Others are playtest-only
 # hypotheses — they are the knobs this playtest is meant to evaluate.
-const STARTING_BALANCE := 10000.0               # (UE)
+const START_LOT_SIZE := Vector2i(16, 10)        # 40 stalls; UE test lot is 24×16 (144)
+const STARTING_BALANCE := 2500.0                # UE: 10000
+const DAILY_RENT := 600.0                       # lease + utilities, paid at midnight
 const HOURLY_RATE := 4.0                        # (UE) $ per in-game hour
 const MIN_BILLED_HOURS := 0.25                  # (UE) 15-minute minimum
 const SURGE_MULTIPLIER := 1.5                   # (UE)
 const LOAN_AMOUNT := 5000.0                     # one press of the loan key
+const MAX_LOAN_PRINCIPAL := 10000.0             # the bank stops lending past this
 const LOAN_INTEREST_RATE := 0.02                # (UE) daily, on principal
 const LOAN_REPAYMENT_FRACTION := 0.05           # (UE) of principal, daily
-const BANKRUPT_THRESHOLD := -5000.0             # (UE) default threshold
+const BANKRUPT_THRESHOLD := -2000.0             # UE: -5000. Checked at day end.
 const SHADOW_INCOME_PER_TICK := 0.05            # (UE) during BlackMarketNight
 
 const VEHICLE_TICKS_PER_TILE := 4.0             # (UE)
@@ -95,6 +98,36 @@ const AUTO_INCIDENT_TIMEOUT := 2400             # unattended 2 in-game hours →
 const AUTO_INCIDENT_EXPIRE_FINE := 50.0
 const INSPECTION_FINE := 500.0
 const INTEGRITY_REPAIR_PER_IDLE_MAINT := 0.000004
+
+# Reputation (0-100) scales demand: 0 → ×0.6, 50 → ×1.0, 100 → ×1.4.
+# Good service raises it; turning cars away and ignoring problems lowers it.
+const REPUTATION_START := 50.0
+const REP_DEMAND_MIN := 0.6
+const REP_DEMAND_MAX := 1.4
+const REP_SERVED := 0.25                        # each paying customer
+const REP_TURNED_AWAY := -1.5                   # drove in, found no stall
+const REP_LOST_AT_GATE := -1.0                  # gave up in the street queue
+const REP_UNATTENDED := -3.0                    # incident left until the city fined you
+const REP_DECISION_IGNORED := -1.5              # decision card timed out
+const REP_THEFT := -3.0                         # a theft went through
+
+# Attendants run the entry gate: ticks to process each arriving car,
+# indexed by attendants on staff (0, 1, 2+).
+const GATE_TICKS := [80, 20, 10]
+
+# Security deters crime: each guard multiplies these incidents' rates by
+# SECURITY_CRIME_FACTOR, down to SECURITY_CRIME_FLOOR.
+const CRIME_INCIDENTS := ["TheftInProgress", "SuspiciousVehicle", "Altercation"]
+const SECURITY_CRIME_FACTOR := 0.6
+const SECURITY_CRIME_FLOOR := 0.3
+
+# Factions drift back toward 0 by this fraction each midnight.
+const FACTION_DAILY_DECAY := 0.15
+
+# Incident rates in IncidentTypes.json are tuned for a 144-stall floor.
+# Smaller lots get fewer: rate × (stalls / 144) ^ exponent.
+const INCIDENT_REFERENCE_STALLS := 144.0
+const INCIDENT_SIZE_EXPONENT := 0.5
 
 const GOAL_DAYS := 7                            # playtest goal: survive 7 days
 

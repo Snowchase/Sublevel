@@ -27,6 +27,10 @@ const TESTS := [
 	"test_firing_busy_worker_requeues_incident",
 	"test_day_end_wages_and_loan",
 	"test_bankruptcy",
+	"test_reputation_scales_demand",
+	"test_attendants_speed_up_gate",
+	"test_security_deters_crime",
+	"test_loan_cap",
 	"test_city_events",
 	"test_street_queue_overflow",
 	"test_hud_and_main_scene_smoke",
@@ -148,24 +152,36 @@ func test_data_loads() -> bool:
 
 
 func test_layout() -> bool:
+	# Starting lot: small 16x10 garage.
 	var sim := quiet_sim()
 	var grid = sim.grid
-	check(grid.width == 24 and grid.height == 16, "24x16 grid")
-	check(grid.stalls.size() == 144, "144 stalls (got %d)" % grid.stalls.size())
-	check(grid.entry_gate == Vector2i(6, 0), "entry gate at (6,0)")
-	check(grid.exit_gate == Vector2i(18, 0), "exit gate at (18,0)")
+	check(grid.width == 16 and grid.height == 10, "starting lot is 16x10 (got %dx%d)" % [grid.width, grid.height])
+	check(grid.stalls.size() == 40, "40 stalls (got %d)" % grid.stalls.size())
+	check(grid.entry_gate == Vector2i(4, 0), "entry gate at (4,0)")
+	check(grid.exit_gate == Vector2i(12, 0), "exit gate at (12,0)")
 	check(grid.unreachable_stalls.is_empty(), "every stall reachable (%d unreachable)" % grid.unreachable_stalls.size())
+	_check_stall_mix(grid, {C.Tile.STALL_COMPACT: 8, C.Tile.STALL_STANDARD: 16,
+		C.Tile.STALL_OVERSIZED: 8, C.Tile.STALL_MOTORCYCLE: 4, C.Tile.STALL_DISABLED: 4})
 
+	# The original 24x16 test lot still generates as before (future expansion).
+	var big := Simulation.new()
+	big.setup(1, data, Vector2i(24, 16))
+	check(big.grid.stalls.size() == 144, "24x16 lot has 144 stalls (got %d)" % big.grid.stalls.size())
+	check(big.grid.entry_gate == Vector2i(6, 0) and big.grid.exit_gate == Vector2i(18, 0), "24x16 gates at (6,0)/(18,0)")
+	check(big.grid.unreachable_stalls.is_empty(), "every 24x16 stall reachable")
+	_check_stall_mix(big.grid, {C.Tile.STALL_COMPACT: 32, C.Tile.STALL_STANDARD: 72,
+		C.Tile.STALL_OVERSIZED: 24, C.Tile.STALL_MOTORCYCLE: 8, C.Tile.STALL_DISABLED: 8})
+	return true
+
+
+func _check_stall_mix(grid, expected: Dictionary) -> void:
 	var counts := {}
 	for s in grid.stalls:
 		var t: int = grid.tile_at(s)
 		counts[t] = int(counts.get(t, 0)) + 1
-	check(counts.get(C.Tile.STALL_COMPACT, 0) == 32, "32 compact stalls")
-	check(counts.get(C.Tile.STALL_STANDARD, 0) == 72, "72 standard stalls")
-	check(counts.get(C.Tile.STALL_OVERSIZED, 0) == 24, "24 oversized stalls")
-	check(counts.get(C.Tile.STALL_MOTORCYCLE, 0) == 8, "8 motorcycle stalls")
-	check(counts.get(C.Tile.STALL_DISABLED, 0) == 8, "8 disabled stalls")
-	return true
+	for t in expected.keys():
+		check(int(counts.get(t, 0)) == int(expected[t]), "%dx%d lot: %d stalls of type %d (got %d)" % [
+			grid.width, grid.height, expected[t], t, int(counts.get(t, 0))])
 
 
 func test_pathing() -> bool:
@@ -404,10 +420,103 @@ func test_day_end_wages_and_loan() -> bool:
 	sim.tick()
 	var expected_loan := C.LOAN_AMOUNT * (C.LOAN_INTEREST_RATE + C.LOAN_REPAYMENT_FRACTION)
 	check(sim.day == 2, "day rolled over to 2")
-	check(approx(before - sim.balance, 300.0 + expected_loan), "paid wages $300 + loan $%.0f (paid %.2f)" % [expected_loan, before - sim.balance])
+	check(approx(before - sim.balance, C.DAILY_RENT + 300.0 + expected_loan),
+		"paid rent $%.0f + wages $300 + loan $%.0f (paid %.2f)" % [C.DAILY_RENT, expected_loan, before - sim.balance])
 	check(approx(sim.loan_principal, C.LOAN_AMOUNT * (1.0 - C.LOAN_REPAYMENT_FRACTION)), "principal reduced by 5%")
 	check(sim.day_history.size() == 1, "day summary recorded")
 	check(sim.stats["revenue"] == 0.0 and sim.stats["expenses"] == 0.0, "daily stats reset")
+	check(approx(float(sim.day_history[0]["expenses_by"].get("rent", 0.0)), C.DAILY_RENT), "rent recorded in expenses")
+
+	# Factions drift back toward 0 at midnight.
+	var sim2 := quiet_sim()
+	sim2.factions["police"] = 40.0
+	sim2.factions["shadow_clients"] = -20.0
+	sim2.tick_count = C.TICKS_PER_DAY - 1
+	sim2.tick()
+	check(approx(sim2.factions["police"], 40.0 * (1.0 - C.FACTION_DAILY_DECAY)), "police decays toward 0 (got %.2f)" % sim2.factions["police"])
+	check(approx(sim2.factions["shadow_clients"], -20.0 * (1.0 - C.FACTION_DAILY_DECAY)), "shadow decays toward 0")
+	return true
+
+
+func test_reputation_scales_demand() -> bool:
+	var sim := quiet_sim()
+	sim.demand_scale = 1.0
+	sim.reputation = 50.0
+	sim.tick()
+	var mid: float = sim.current_lambda
+	sim.reputation = 100.0
+	sim.tick()
+	var high: float = sim.current_lambda
+	sim.reputation = 0.0
+	sim.tick()
+	var low: float = sim.current_lambda
+	check(mid > 0.0 and approx(high / mid, C.REP_DEMAND_MAX, 0.01), "rep 100 → demand ×%.1f (got ×%.2f)" % [C.REP_DEMAND_MAX, high / maxf(mid, 0.001)])
+	check(approx(low / mid, C.REP_DEMAND_MIN, 0.01), "rep 0 → demand ×%.1f (got ×%.2f)" % [C.REP_DEMAND_MIN, low / maxf(mid, 0.001)])
+
+	# Service moves reputation: a served car raises it, a turned-away car lowers it.
+	sim.reputation = 50.0
+	var v = sim.spawn_vehicle("Standard")
+	run_until(sim, func(): return v.is_parked(), 600)
+	v.depart_tick = sim.tick_count + 1
+	run_until(sim, func(): return not sim.vehicles.has(v.id), 600)
+	check(approx(sim.reputation, 50.0 + C.REP_SERVED), "served car: rep +%.2f (got %.2f)" % [C.REP_SERVED, sim.reputation])
+	sim.on_vehicle_left_unserved(v)
+	check(approx(sim.reputation, 50.0 + C.REP_SERVED + C.REP_TURNED_AWAY), "turned-away car: rep %.1f" % C.REP_TURNED_AWAY)
+	return true
+
+
+func test_attendants_speed_up_gate() -> bool:
+	var counts: Array[int] = []
+	for attendants in [0, 1]:
+		var sim := quiet_sim(9)
+		for _i in attendants:
+			sim.hire_staff(C.Role.ATTENDANT)
+		# A steady crowd waiting outside; count cars admitted in 30 seconds.
+		for _i in 200:
+			sim.tick()
+			while sim.outside_queue.size() < C.OUTSIDE_QUEUE_MAX:
+				sim.outside_queue.append({"type": "Standard", "since": sim.tick_count})
+		counts.append(sim.stats["entered"])
+	check(sim_gate_ticks_ok(), "gate timing table has entries for 0, 1, 2+ attendants")
+	check(counts[1] >= counts[0] * 3, "an attendant admits ≥3× more cars (none: %d, one: %d)" % [counts[0], counts[1]])
+	return true
+
+
+func sim_gate_ticks_ok() -> bool:
+	return C.GATE_TICKS.size() == 3 and C.GATE_TICKS[0] > C.GATE_TICKS[1] and C.GATE_TICKS[1] > C.GATE_TICKS[2]
+
+
+func test_security_deters_crime() -> bool:
+	var sim := quiet_sim()
+	var base: float = sim.incident_rate("TheftInProgress")
+	sim.hire_staff(C.Role.SECURITY)
+	var one: float = sim.incident_rate("TheftInProgress")
+	sim.hire_staff(C.Role.SECURITY)
+	sim.hire_staff(C.Role.SECURITY)
+	sim.hire_staff(C.Role.SECURITY)
+	var many: float = sim.incident_rate("TheftInProgress")
+	check(approx(one / base, C.SECURITY_CRIME_FACTOR, 0.001), "one guard cuts theft rate to ×%.1f" % C.SECURITY_CRIME_FACTOR)
+	check(approx(many / base, C.SECURITY_CRIME_FLOOR, 0.001), "guards can't push crime below ×%.1f" % C.SECURITY_CRIME_FLOOR)
+	check(approx(sim.incident_rate("OilSpill"), quiet_sim().incident_rate("OilSpill")), "guards don't affect non-crime incidents")
+
+	# Smaller lots have proportionally fewer incidents than the 144-stall reference.
+	var big := Simulation.new()
+	big.setup(1, data, Vector2i(24, 16))
+	var expected := pow(40.0 / 144.0, C.INCIDENT_SIZE_EXPONENT)
+	check(approx(quiet_sim().incident_rate("OilSpill") / big.incident_rate("OilSpill"), expected, 0.001),
+		"40-stall lot has ×%.2f the incident rate of the 144-stall lot" % expected)
+	return true
+
+
+func test_loan_cap() -> bool:
+	var sim := quiet_sim()
+	var taken := 0
+	for _i in 5:
+		if sim.take_loan():
+			taken += 1
+	var allowed := int(C.MAX_LOAN_PRINCIPAL / C.LOAN_AMOUNT)
+	check(taken == allowed, "bank lends up to $%d (%d loans, got %d)" % [int(C.MAX_LOAN_PRINCIPAL), allowed, taken])
+	check(approx(sim.loan_principal, C.MAX_LOAN_PRINCIPAL), "principal capped")
 	return true
 
 
@@ -572,10 +681,10 @@ func test_soak_three_days() -> bool:
 	print("    soak: %.0f µs/tick, served %d, balance $%.0f, factions %s" % [usec_per_tick, served, sim.balance, str(sim.factions)])
 	for d in sim.day_history:
 		var line := "    day %d: revenue $%.0f, expenses $%.0f, served %d, turned away %d, lost at gate %d, " \
-			+ "peak %d/144, incidents %d (staff %d, unattended %d), decisions %d/%d"
+			+ "peak %d/%d, incidents %d (staff %d, unattended %d), decisions %d/%d"
 		print(line % [
 			d["day"], d["revenue"], d["expenses"], d["served"], d["turned_away"], d["lost_at_gate"],
-			d["peak_occupancy"], d["incidents"], d["resolved_by_staff"], d["incidents_unattended"],
+			d["peak_occupancy"], d["stall_count"], d["incidents"], d["resolved_by_staff"], d["incidents_unattended"],
 			d["decisions_made"], d["decisions_made"] + d["decisions_expired"]])
 		print("      revenue by source %s · expenses by %s · events %s" % [
 			str(d["revenue_by"]), str(d["expenses_by"]), str(d["city_events"])])

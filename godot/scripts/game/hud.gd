@@ -285,16 +285,22 @@ func _refresh_left() -> void:
 		var left_s := int((int(e["end"]) - sim.tick_count) * C.TICK_SECONDS)
 		t += "[color=#6fd3ff]%s[/color] %ds%s\n" % [e["def"]["type"], left_s, "  SURGE" if e["def"]["surge_pricing"] else ""]
 
-	var occupied: int = sim.sample_occupancy()
+	var occupied: int = sim.occupied_stalls()
 	var total: int = sim.grid.stalls.size()
 	t += "\n[b]LOT[/b]\n"
+	var rep: float = sim.reputation
+	var rep_color := "#7be07b" if rep >= 60.0 else ("#ffb347" if rep >= 35.0 else "#ff6b5e")
+	t += "Reputation [color=%s]%d[/color]  (demand ×%.2f)\n" % [rep_color, int(round(rep)), sim.reputation_multiplier()]
 	t += "Stalls %d / %d   in lot %d   street queue %d\n" % [occupied, total, sim.vehicles.size(), sim.outside_queue.size()]
 	t += "Today: served %d · turned away %d · lost at gate %d\n" % [
 		sim.stats["served"], sim.stats["turned_away"], sim.stats["lost_at_gate"]]
 	var integ_color := "#7be07b" if sim.grid.integrity > 0.6 else ("#ffb347" if sim.grid.integrity > 0.5 else "#ff6b5e")
 	t += "Structure [color=%s]%d%%[/color]   cracks %d\n" % [integ_color, int(sim.grid.integrity * 100), sim.grid.active_cracks]
 
-	t += "\n[b]STAFF[/b]  wages %s/day\n" % _money(_daily_wages())
+	t += "\n[b]COSTS[/b]  rent %s + wages %s per day\n" % [_money(C.DAILY_RENT), _money(_daily_wages())]
+	t += "Gate: %.1fs per car%s\n" % [sim.gate_ticks_per_car() * C.TICK_SECONDS,
+		"  [color=#ffb347](no attendant)[/color]" if sim.count_staff(C.Role.ATTENDANT) == 0 else ""]
+	t += "\n[b]STAFF[/b]\n"
 	t += "Attendant %d · Security %d · Maint. %d\n" % [
 		sim.count_staff(C.Role.ATTENDANT), sim.count_staff(C.Role.SECURITY), sim.count_staff(C.Role.MAINTENANCE)]
 	var tired := 0
@@ -422,18 +428,21 @@ func _refresh_overlay() -> void:
 		t += "[font_size=22]Session summary[/font_size]   (Tab to close, R to restart)\n\n"
 
 	t += "Seed %d · demand ×%s · day %d %s\n\n" % [sim.seed_value, demand_scale_text, sim.day, sim.clock_text()]
-	t += "[table=9]"
-	for h in ["Day", "Revenue", "Expenses", "Balance", "Served", "Turned away", "Lost at gate", "Incidents", "Decisions"]:
+	t += "[table=10]"
+	for h in ["Day", "Revenue", "Expenses", "Balance", "Rep", "Served", "Turned away", "Lost at gate", "Incidents", "Decisions"]:
 		t += "[cell][b]%s  [/b][/cell]" % h
 	var rows: Array = sim.day_history.duplicate()
 	var today: Dictionary = sim.stats.duplicate()
 	today["day"] = "%d*" % sim.day
 	today["balance_end"] = sim.balance
+	today["reputation"] = sim.reputation
 	rows.append(today)
 	for r in rows:
-		t += "[cell]%s[/cell][cell]%s[/cell][cell]%s[/cell][cell]%s[/cell][cell]%d[/cell][cell]%d[/cell][cell]%d[/cell][cell]%d[/cell][cell]%d / %d[/cell]" % [
+		var row_fmt := "[cell]%s[/cell][cell]%s[/cell][cell]%s[/cell][cell]%s[/cell][cell]%d[/cell]" \
+			+ "[cell]%d[/cell][cell]%d[/cell][cell]%d[/cell][cell]%d[/cell][cell]%d / %d[/cell]"
+		t += row_fmt % [
 			str(r["day"]), _money(r["revenue"]), _money(r["expenses"]), _money(r["balance_end"]),
-			r["served"], r["turned_away"], r["lost_at_gate"], r["incidents"],
+			int(round(float(r.get("reputation", 50.0)))), r["served"], r["turned_away"], r["lost_at_gate"], r["incidents"],
 			r["decisions_made"], r["decisions_made"] + r["decisions_expired"]]
 	t += "[/table]\n[color=#888888]* = day in progress[/color]\n\n"
 

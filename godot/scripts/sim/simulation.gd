@@ -50,6 +50,8 @@ var _next_incident_tick: Dictionary = {}   # type -> tick
 # ── Economy & factions ───────────────────────────────────────────
 var balance := C.STARTING_BALANCE
 var loan_principal := 0.0
+var reputation := C.REPUTATION_START   # 0-100, scales demand (playtest mechanic)
+var _gate_busy := 0                    # ticks until the entry gate takes the next car
 var factions: Dictionary = {"city_authority": 0.0, "police": 0.0, "shadow_clients": 0.0}
 var bankrupt := false
 var goal_reached := false
@@ -67,7 +69,7 @@ var messages: Array = []             # recent log lines [{tick, text, kind}]
 
 ## Builds a fresh session. Pass a pre-loaded data_loader to share parsed
 ## JSON between many sims (tests); otherwise Data/ is read from disk.
-func setup(session_seed: int, shared_data: DataLoader = null) -> bool:
+func setup(session_seed: int, shared_data: DataLoader = null, lot_size: Vector2i = C.START_LOT_SIZE) -> bool:
 	seed_value = session_seed
 	rng.seed = session_seed
 
@@ -79,7 +81,7 @@ func setup(session_seed: int, shared_data: DataLoader = null) -> bool:
 	setup_errors.assign(data.errors)
 
 	grid = FloorGrid.new()
-	grid.generate_default_layout()
+	grid.generate_default_layout(lot_size.x, lot_size.y)
 
 	tick_count = C.START_HOUR * C.TICKS_PER_HOUR
 	day = 1
@@ -153,7 +155,16 @@ func _update_demand() -> void:
 	var multiplier := 1.0
 	for e in active_events:
 		multiplier *= maxf(float(e["def"]["demand_multiplier"]), 0.0)
-	current_lambda = base * multiplier * demand_scale
+	current_lambda = base * multiplier * demand_scale * reputation_multiplier()
+
+
+## Demand multiplier from reputation: 0 → ×0.6, 50 → ×1.0, 100 → ×1.4.
+func reputation_multiplier() -> float:
+	return lerpf(C.REP_DEMAND_MIN, C.REP_DEMAND_MAX, reputation / 100.0)
+
+
+func change_reputation(delta: float) -> void:
+	reputation = clampf(reputation + delta, 0.0, 100.0)
 
 
 func event_active(type_name: String) -> bool:
@@ -256,6 +267,7 @@ func _tick_arrivals() -> void:
 		_spawn_accum -= 1.0
 		if outside_queue.size() >= C.OUTSIDE_QUEUE_MAX:
 			stats["lost_at_gate"] += 1
+			change_reputation(C.REP_LOST_AT_GATE)
 		else:
 			outside_queue.append({"type": _pick_vehicle_type(), "since": tick_count})
 		stats["arrivals"] += 1
@@ -264,11 +276,21 @@ func _tick_arrivals() -> void:
 	while not outside_queue.is_empty() and tick_count - int(outside_queue[0]["since"]) > C.OUTSIDE_QUEUE_PATIENCE:
 		outside_queue.pop_front()
 		stats["lost_at_gate"] += 1
+		change_reputation(C.REP_LOST_AT_GATE)
 
-	# One car through the entry gate per tick when there is room.
-	if not outside_queue.is_empty() and grid.vehicles_on(grid.entry_gate) < C.MAX_VEHICLES_PER_TILE:
+	# The entry gate processes one car at a time; attendants make it faster.
+	if _gate_busy > 0:
+		_gate_busy -= 1
+	elif not outside_queue.is_empty() and grid.vehicles_on(grid.entry_gate) < C.MAX_VEHICLES_PER_TILE:
 		var next: Dictionary = outside_queue.pop_front()
 		spawn_vehicle(String(next["type"]))
+		_gate_busy = gate_ticks_per_car()
+
+
+## Ticks the entry gate needs per car: slow without an attendant.
+func gate_ticks_per_car() -> int:
+	var attendants := count_staff(C.Role.ATTENDANT)
+	return int(C.GATE_TICKS[mini(attendants, C.GATE_TICKS.size() - 1)])
 
 
 func _pick_vehicle_type() -> String:
@@ -324,10 +346,12 @@ func on_vehicle_exited(v: Vehicle) -> void:
 		fee *= C.SURGE_MULTIPLIER
 	_earn(fee, "parking")
 	stats["served"] += 1
+	change_reputation(C.REP_SERVED)
 
 
 func on_vehicle_left_unserved(_v: Vehicle) -> void:
 	stats["turned_away"] += 1
+	change_reputation(C.REP_TURNED_AWAY)
 
 
 func parked_vehicles() -> Array:
@@ -342,8 +366,20 @@ func parked_vehicles() -> Array:
 # INCIDENTS (§5)
 # ═════════════════════════════════════════════════════════════════
 
-func _schedule_next_incident(type_name: String) -> void:
+## Effective incident rate (events per real second): the JSON rate scaled
+## down for smaller lots, and for crime types, by Security guards on staff.
+func incident_rate(type_name: String) -> float:
 	var lam := float(data.incident_defs[type_name]["lambda"])
+	var stall_count := maxf(float(grid.stalls.size()), 1.0)
+	lam *= pow(stall_count / C.INCIDENT_REFERENCE_STALLS, C.INCIDENT_SIZE_EXPONENT)
+	if type_name in C.CRIME_INCIDENTS:
+		var guards := count_staff(C.Role.SECURITY)
+		lam *= maxf(pow(C.SECURITY_CRIME_FACTOR, guards), C.SECURITY_CRIME_FLOOR)
+	return lam
+
+
+func _schedule_next_incident(type_name: String) -> void:
+	var lam := incident_rate(type_name)
 	if lam <= 0.0:
 		return
 	var u := maxf(rng.randf(), 0.000001)
@@ -483,6 +519,7 @@ func _expire_decision(inc: Incident) -> void:
 		_apply_branch(inc, branch, true)
 	_close_incident(inc, C.IncidentState.EXPIRED)
 	stats["decisions_expired"] += 1
+	change_reputation(C.REP_DECISION_IGNORED)
 
 
 func _apply_branch(inc: Incident, branch_index: int, expired: bool) -> void:
@@ -517,6 +554,8 @@ func _apply_consequence(inc: Incident, tag: String) -> void:
 		_earn(money, "shadow" if tag == "vehicle_stays_shadow_credit" else "decisions")
 	elif money < 0.0:
 		_spend(-money, "losses")
+	if tag == "theft_completed_revenue_lost":
+		change_reputation(C.REP_THEFT)
 
 
 ## Returns true if a car was removed.
@@ -546,6 +585,7 @@ func _expire_auto_incident(inc: Incident) -> void:
 	inc.outcome = "Unattended — city cleaned up, fined"
 	_close_incident(inc, C.IncidentState.EXPIRED)
 	stats["incidents_unattended"] += 1
+	change_reputation(C.REP_UNATTENDED)
 	log_message("%s left unattended. City fined you $%d." % [inc.type_name, int(C.AUTO_INCIDENT_EXPIRE_FINE)], "bad")
 
 
@@ -663,11 +703,16 @@ func apply_faction(faction: String, delta: float) -> void:
 	factions[faction] = clampf(float(factions[faction]) + delta, -100.0, 100.0)
 
 
-func take_loan() -> void:
+## Returns false when the bank refuses (principal would pass the cap).
+func take_loan() -> bool:
+	if loan_principal + C.LOAN_AMOUNT > C.MAX_LOAN_PRINCIPAL:
+		log_message("The bank refuses: you already owe $%d (limit $%d)." % [int(loan_principal), int(C.MAX_LOAN_PRINCIPAL)], "bad")
+		return false
 	balance += C.LOAN_AMOUNT
 	loan_principal += C.LOAN_AMOUNT
 	stats["loans_taken"] += 1
 	log_message("Took a $%d loan (principal now $%d)." % [int(C.LOAN_AMOUNT), int(loan_principal)], "warn")
+	return true
 
 
 func _earn(amount: float, category: String) -> void:
@@ -688,6 +733,8 @@ func _tick_economy() -> void:
 
 
 func _end_day() -> void:
+	_spend(C.DAILY_RENT, "rent")
+
 	var wages := 0.0
 	for s in staff.values():
 		wages += float(C.STAFF_WAGES[s.role])
@@ -702,8 +749,14 @@ func _end_day() -> void:
 		if loan_principal < 1.0:
 			loan_principal = 0.0
 
+	for f in C.FACTIONS:
+		factions[f] = float(factions[f]) * (1.0 - C.FACTION_DAILY_DECAY)
+
 	var summary := stats.duplicate(true)
 	summary["day"] = day
+	summary["reputation"] = reputation
+	summary["stall_count"] = grid.stalls.size()
+	summary["avg_occupancy"] = (float(stats["occupancy_sum"]) / stats["occupancy_samples"]) if stats["occupancy_samples"] > 0 else 0.0
 	summary["balance_end"] = balance
 	summary["loan_principal"] = loan_principal
 	summary["factions"] = factions.duplicate()
@@ -740,12 +793,20 @@ func _reset_day_stats() -> void:
 		"revenue": 0.0, "expenses": 0.0,
 		"revenue_by": {}, "expenses_by": {},
 		"loans_taken": 0, "city_events": [],
+		"occupancy_sum": 0, "occupancy_samples": 0,
 	}
 
 
-## Called by the game each frame (cheap) to track the busiest moment.
+func occupied_stalls() -> int:
+	return grid.stalls.size() - grid.count_free_stalls()
+
+
+## Called by the sim every CONGESTION_UPDATE_TICKS to track peak and
+## average occupancy. UI code should use occupied_stalls() instead.
 func sample_occupancy() -> int:
-	var occupied := grid.stalls.size() - grid.count_free_stalls()
+	var occupied := occupied_stalls()
+	stats["occupancy_sum"] += occupied
+	stats["occupancy_samples"] += 1
 	if occupied > int(stats["peak_occupancy"]):
 		stats["peak_occupancy"] = occupied
 	return occupied
@@ -766,7 +827,7 @@ func log_message(text: String, kind: String = "info") -> void:
 ## equal signatures (determinism test).
 func state_signature() -> String:
 	var parts: PackedStringArray = []
-	parts.append("t%d d%d b%.4f l%.2f" % [tick_count, day, balance, loan_principal])
+	parts.append("t%d d%d b%.4f l%.2f r%.3f" % [tick_count, day, balance, loan_principal, reputation])
 	for f in C.FACTIONS:
 		parts.append("%s%.3f" % [f, factions[f]])
 	for v in vehicles.values():
