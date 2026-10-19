@@ -75,18 +75,23 @@ jobs:
         if: always()
         run: |
           mkdir -p results
-          shot() {   # shot NAME [game args...]
-            local name="$1"; shift
+          shot() {   # shot NAME SCENE [game args...]  (SCENE "" = start scene, i.e. the menu)
+            local name="$1"; local scene="$2"; shift 2
             timeout 120 xvfb-run -a -s "-screen 0 1280x720x24" \
-              ~/godot/godot --path godot --rendering-driver opengl3 --audio-driver Dummy \
+              ~/godot/godot --path godot --rendering-driver opengl3 --audio-driver Dummy $scene \
               -- "$@" --screenshot="$GITHUB_WORKSPACE/results/screenshot_${name}.png" --screenshot-frames=45 \
               2>&1 | tee "results/screenshot_${name}.log" || true
           }
-          shot early    --seed=7  --demand=1 --warmup-ticks=1200 --autoplay --speed=2
-          shot busy     --seed=7  --demand=3 --warmup-ticks=5000 --autoplay --speed=2
-          shot rush     --seed=11 --demand=6 --warmup-ticks=9000 --autoplay --speed=2
-          shot decision --seed=3  --demand=2 --warmup-ticks=3000 --spawn-incident=SuspiciousVehicle
-          shot summary  --seed=5  --demand=2 --warmup-ticks=16000 --autoplay --show-summary
+          GAME=res://scenes/main.tscn
+          shot menu       ""
+          shot menu_help  ""    --show-help
+          shot tutorial   $GAME --mode=tutorial
+          shot tutorial6  $GAME --mode=tutorial --tutorial-skip-to=6
+          shot early      $GAME --seed=7  --demand=1 --warmup-ticks=1200 --autoplay --speed=2
+          shot busy       $GAME --seed=7  --demand=3 --warmup-ticks=5000 --autoplay --speed=2
+          shot rush       $GAME --seed=11 --demand=6 --warmup-ticks=9000 --autoplay --speed=2
+          shot decision   $GAME --seed=3  --demand=2 --warmup-ticks=3000 --spawn-incident=SuspiciousVehicle
+          shot summary    $GAME --seed=5  --demand=2 --warmup-ticks=16000 --autoplay --show-summary
           ls -la results
 
       # Small JPEG previews of the screenshots as base64 text, so the
@@ -99,7 +104,7 @@ jobs:
           import base64, glob, io
           from PIL import Image
           for path in sorted(glob.glob("results/screenshot_*.png")):
-              if "early" in path or "rush" in path:
+              if not any(k in path for k in ("menu.", "menu_help", "tutorial.", "tutorial6")):
                   continue
               im = Image.open(path).convert("RGB")
               im.thumbnail((800, 450))

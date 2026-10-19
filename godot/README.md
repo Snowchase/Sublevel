@@ -13,7 +13,12 @@ compiles. The Unreal code is untouched.
    <https://godotengine.org/download/windows/> and unzip it anywhere.
 2. Open Godot. In the Project Manager click **Import**, browse to
    `Sublevel\godot\project.godot`, and click **Import & Edit**.
-3. Press **F5** (or the ▶ button, top right) to play.
+3. Press **F5** (or the ▶ button, top right). The **main menu** appears:
+   - **Tutorial**: a guided 10-step walkthrough on a tiny 12-stall garage
+     (about 5 minutes). Start here the first time.
+   - **New Game**: the real 7-day game on a 40-stall garage.
+   - **How to Play**: rules and controls at a glance.
+   - **Quit**.
 
 > Keep the `godot` folder next to the repo's `Data` folder. The game reads its
 > rules from `..\Data\`. If you see a red "DATA ERROR" in the log, that's why.
@@ -36,6 +41,8 @@ compiles. The Unreal code is untouched.
 | **Mouse over a tile** | Shows what's there (bottom of screen) |
 | **Tab** | Session summary (day-by-day table + every decision) |
 | **R** (with summary open) | Restart with a new seed |
+| **M**, or the **Main menu** button | Back to the main menu |
+| **Enter** | Tutorial: go to the next step |
 | **F12** | Screenshot |
 
 The left panel's buttons do the same as the hire, fire, loan and speed keys.
@@ -46,6 +53,27 @@ types (teal compact, blue-gray standard, brown oversized, purple **M**otorcycle,
 Circles are staff: **A**ttendant (yellow), **S**ecurity (blue), **M**aintenance (orange).
 Pulsing rings are incidents (red = needs your decision, orange = waiting for staff,
 yellow = being handled). Cars waiting on the street queue above the IN gate.
+
+---
+
+### The tutorial
+
+The tutorial runs on a 12-stall garage with no random events. A panel at the
+top explains each step, and a pulsing gold arrow points at the relevant tile.
+Each step completes when you actually do the thing:
+
+1. **Welcome:** the IN and OUT gates.
+2. **Time controls:** start the clock with +.
+3. **Customers arrive:** three cars find stalls that fit.
+4. **Getting paid:** a car leaves and pays.
+5. **Incidents:** an oil spill blocks a lane, and your maintenance worker cleans it.
+6. **Your first decision:** the game pauses, and you choose an option.
+7. **Hiring staff:** hire a second maintenance worker.
+8. **Rush hour:** more cars than stalls, and reputation reacts.
+9. **Your day at a glance:** open the summary with Tab.
+10. **You're ready:** start a real game, or go back to the menu.
+
+Finishing it puts a ✓ next to Tutorial in the menu. **Exit to menu** leaves at any time.
 
 ---
 
@@ -129,7 +157,7 @@ that came in the zip:
 ```bat
 cd Sublevel\godot
 set GODOT=C:\path\to\Godot_v4.x-stable_win64_console.exe
-run_tests.bat              :: 23 tests
+run_tests.bat              :: 25 tests
 run_tests.bat --balance    :: balance table across demand levels
 ```
 
@@ -147,6 +175,7 @@ The test suite checks:
 - **City events:** faction-triggered and scheduled events; surge pricing.
 - **Street queue:** overflow counts as lost cars.
 - **UI smoke test:** the HUD and main scene load and run.
+- **Menu and tutorial:** the menu builds and routes to the right mode, and a scripted player completes all 10 tutorial steps.
 - **3-day soak:** bookkeeping invariants hold, no car is stuck for long, and the sim is fast enough for ×16.
 
 The balance report simulates 5 full days × 3 seeds at demand ×0.5–×3 for two players:
@@ -163,10 +192,13 @@ Screenshot or demo mode, for checking visuals without playing:
 
 Screenshots need a real window; they don't work with `--headless`. Add
 `--spawn-incident=SuspiciousVehicle` to capture a decision card, or
-`--show-summary` to capture the summary screen.
+`--show-summary` to capture the summary screen. The menu is the start scene,
+so pass `res://scenes/main.tscn` before `--` to screenshot the game. Add
+`--mode=tutorial` (plus `--tutorial-skip-to=N` to jump to step N) for the
+tutorial.
 
 **CI:** `.github/workflows/godot-playtest.yml` runs the tests, the balance report and
-five screenshots on every push that touches `godot/` or `Data/`. Open the run on
+nine screenshots (menu, tutorial and gameplay) on every push that touches `godot/` or `Data/`. Open the run on
 GitHub's **Actions** tab. The summary page shows the test and balance tables, and
 the **godot-playtest-results** download has the screenshots and session logs.
 

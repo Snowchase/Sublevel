@@ -13,12 +13,20 @@ extends Node2D
 ##   --spawn-incident=TYPE  spawn one incident at start (e.g. SuspiciousVehicle)
 ##   --show-summary      open the session summary overlay at start
 ##   --no-autopause      don't pause when a decision card appears
+##   --mode=tutorial     start the tutorial (normally chosen in the menu)
+##   --tutorial-skip-to=N  play tutorial steps automatically up to step N
 
 const C = preload("res://scripts/sim/sim_const.gd")
 const Simulation = preload("res://scripts/sim/simulation.gd")
 const FloorView = preload("res://scripts/game/floor_view.gd")
 const Hud = preload("res://scripts/game/hud.gd")
 const PlaytestLogger = preload("res://scripts/game/playtest_logger.gd")
+const GameConfig = preload("res://scripts/game/game_config.gd")
+const Tutorial = preload("res://scripts/game/tutorial.gd")
+
+const MENU_SCENE := "res://scenes/menu.tscn"
+const GAME_SCENE := "res://scenes/main.tscn"
+const TUTORIAL_SEED := 2024
 
 const SPEEDS := [1, 2, 4, 8, 16]
 const MAX_TICKS_PER_FRAME := 400
@@ -43,10 +51,13 @@ var _dragging := false
 var _end_overlay_shown := false
 var auto_pause := true             # pause when a decision card appears (P toggles)
 var _paused_for_decision := false
+var game_mode := "play"            # "play" or "tutorial"
+var tutorial: Tutorial = null
 
 
 func _ready() -> void:
 	_parse_args()
+	game_mode = String(_opts.get("mode", GameConfig.mode))
 	speed_index = maxi(0, SPEEDS.find(int(_opts.get("speed", "1"))))
 	demand_scale = clampf(float(_opts.get("demand", "1.0")), DEMAND_MIN, DEMAND_MAX)
 
@@ -65,6 +76,9 @@ func _ready() -> void:
 	hud.loan_requested.connect(_take_loan)
 	hud.speed_step_requested.connect(_step_speed)
 	hud.pause_toggled.connect(_toggle_pause)
+	hud.menu_requested.connect(go_to_menu)
+	hud.tutorial_next_requested.connect(_on_tutorial_next)
+	hud.tutorial_exit_requested.connect(go_to_menu)
 
 	_start_session()
 
@@ -82,10 +96,17 @@ func _parse_args() -> void:
 
 
 func _start_session() -> void:
-	var session_seed := int(_opts.get("seed", str(randi() % 1000000)))
+	var is_tutorial := game_mode == "tutorial"
+	var default_seed := TUTORIAL_SEED if is_tutorial else randi() % 1000000
+	var session_seed := int(_opts.get("seed", str(default_seed)))
 	sim = Simulation.new()
-	var ok := sim.setup(session_seed)
+	var ok := sim.setup(session_seed, null, C.TUTORIAL_LOT_SIZE if is_tutorial else C.START_LOT_SIZE)
 	sim.demand_scale = demand_scale
+	if is_tutorial:
+		# A calm, scripted lot: the tutorial spawns its own cars and incidents.
+		sim.demand_scale = 0.0
+		sim._next_incident_tick.clear()
+		sim.city_events_enabled = false
 	view.sim = sim
 	hud.sim = sim
 	sim.day_ended.connect(_on_day_ended)
@@ -103,11 +124,15 @@ func _start_session() -> void:
 	sim.hire_staff(C.Role.ATTENDANT)
 	sim.hire_staff(C.Role.SECURITY)
 	sim.hire_staff(C.Role.MAINTENANCE)
-	sim.log_message("Welcome to SUBLEVEL. Keep the garage solvent for %d days." % C.GOAL_DAYS, "event")
+	if is_tutorial:
+		sim.log_message("Tutorial: follow the panel at the top of the screen.", "event")
+	else:
+		sim.log_message("Welcome to SUBLEVEL. Keep the garage solvent for %d days." % C.GOAL_DAYS, "event")
 
 	logger = PlaytestLogger.new()
 	logger.start(sim, {"demand_scale": demand_scale, "speed": SPEEDS[speed_index],
-		"autoplay": _opts.has("autoplay"), "auto_pause": auto_pause, "data_dir": sim.data.data_dir})
+		"autoplay": _opts.has("autoplay"), "auto_pause": auto_pause, "mode": game_mode,
+		"data_dir": sim.data.data_dir})
 	print("[SUBLEVEL] Session seed %d — log: %s" % [session_seed, logger.absolute_path()])
 
 	for _i in int(_opts.get("warmup-ticks", "0")):
@@ -122,6 +147,15 @@ func _start_session() -> void:
 	tick_accum = 0.0
 	_end_overlay_shown = false
 	hud.set_overlay_visible(_opts.has("show-summary"))
+
+	tutorial = null
+	if is_tutorial:
+		tutorial = Tutorial.new(self)
+		tutorial.start()
+		if _opts.has("tutorial-skip-to"):
+			tutorial.skip_to(int(_opts["tutorial-skip-to"]))
+	hud.tutorial = tutorial
+
 	_update_speed_text()
 	_center_camera()
 
@@ -132,7 +166,26 @@ func _restart() -> void:
 	_opts.erase("warmup-ticks")
 	_opts.erase("spawn-incident")
 	_opts.erase("show-summary")
+	_opts.erase("tutorial-skip-to")
 	_start_session()
+
+
+func go_to_menu() -> void:
+	if logger != null and sim != null:
+		logger.write(sim, "menu")
+	get_tree().change_scene_to_file(MENU_SCENE)
+
+
+func _on_tutorial_next() -> void:
+	if tutorial == null:
+		return
+	if tutorial.is_finished():
+		# Last step: "Start a real game".
+		logger.write(sim, "tutorial_done")
+		GameConfig.mode = "play"
+		get_tree().change_scene_to_file(GAME_SCENE)
+	else:
+		tutorial.next()
 
 
 # ── Frame loop ───────────────────────────────────────────────────
@@ -153,11 +206,17 @@ func _process(delta: float) -> void:
 			tick_accum = 0.0   # machine can't keep up — drop the backlog
 		view.tick_frac = clampf(tick_accum / C.TICK_SECONDS, 0.0, 1.0)
 
+	if tutorial != null:
+		tutorial.update(delta)
+		view.highlight_cells = tutorial.highlights()
+	else:
+		view.highlight_cells.clear()
+
 	_pan_with_keys(delta)
 	hud.hover_text = view.describe_hovered()
 	hud.refresh(delta)
 
-	if (sim.bankrupt or sim.goal_reached) and not _end_overlay_shown:
+	if tutorial == null and (sim.bankrupt or sim.goal_reached) and not _end_overlay_shown:
 		_end_overlay_shown = true
 		hud.set_overlay_visible(true)
 		logger.write(sim, "bankrupt" if sim.bankrupt else "goal_reached")
@@ -334,6 +393,10 @@ func _handle_key(k: InputEventKey) -> void:
 		KEY_R:
 			if hud.overlay_visible:
 				_restart()
+		KEY_M:
+			go_to_menu()
+		KEY_ENTER, KEY_KP_ENTER:
+			_on_tutorial_next()
 		KEY_F12:
 			DirAccess.make_dir_recursive_absolute("user://screenshots")
 			var stamp := Time.get_datetime_string_from_system(false, true).replace(":", "-").replace(" ", "_")
@@ -343,14 +406,19 @@ func _handle_key(k: InputEventKey) -> void:
 # ── Camera ───────────────────────────────────────────────────────
 
 func _center_camera() -> void:
-	# Fit the lot into the gap between the HUD panels and above the decision card.
+	# Fit the lot into the space left by the HUD: side panels, top bar (and the
+	# tutorial panel), and the decision card at the bottom.
 	var vp := get_viewport().get_visible_rect().size
-	var free := Vector2(vp.x - Hud.LEFT_W - Hud.RIGHT_W - 60.0, vp.y - 60.0 - 230.0)
+	var top := 60.0 + (190.0 if tutorial != null else 0.0)
+	var bottom := 230.0
+	var left := Hud.LEFT_W + 30.0
+	var right := Hud.RIGHT_W + 30.0
+	var free := Vector2(vp.x - left - right, vp.y - top - bottom)
 	var lot := view.grid_pixel_size()
 	var z := clampf(minf(free.x / lot.x, free.y / lot.y), 0.5, 1.6)
 	camera.zoom = Vector2(z, z)
-	var panel_bias := (Hud.RIGHT_W - Hud.LEFT_W) * 0.5
-	camera.position = lot * 0.5 + Vector2(panel_bias, 70.0) / camera.zoom
+	var free_center := Vector2(left + free.x * 0.5, top + free.y * 0.5)
+	camera.position = lot * 0.5 + (vp * 0.5 - free_center) / z
 
 
 func _zoom(factor: float) -> void:

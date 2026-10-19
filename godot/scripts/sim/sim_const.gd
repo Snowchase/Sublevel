@@ -72,6 +72,7 @@ const FACTION_LABELS := {"city_authority": "City", "police": "Police", "shadow_c
 # Values marked (UE) match the Unreal build. Others are playtest-only
 # hypotheses — they are the knobs this playtest is meant to evaluate.
 const START_LOT_SIZE := Vector2i(16, 10)        # 40 stalls; UE test lot is 24×16 (144)
+const TUTORIAL_LOT_SIZE := Vector2i(12, 8)      # 12 stalls for the guided tutorial
 # Multiplies the arrival curve in VehicleArrivals.json for this playtest
 # (that file is shared with UE, so it's left unchanged). At 1.7 the
 # 40-stall lot fills to ~75%+ at rush hour.

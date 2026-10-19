@@ -10,6 +10,7 @@ const TILE := 32.0
 var sim: Simulation = null
 var tick_frac := 0.0                # 0..1 progress toward the next sim tick
 var hovered_cell := C.NO_CELL
+var highlight_cells: Array[Vector2i] = []   # tutorial: tiles to point at
 var _pulse := 0.0
 
 const TILE_COLORS := {
@@ -71,6 +72,7 @@ func _draw() -> void:
 	_draw_vehicles()
 	_draw_staff()
 	_draw_outside_queue()
+	_draw_highlights()
 	_draw_hover()
 
 
@@ -178,6 +180,17 @@ func _draw_outside_queue() -> void:
 		_draw_oriented_rect(pos, Vector2.DOWN, TILE * 0.6, TILE * 0.36, Color(color, 0.55))
 	if n > 0:
 		draw_string(font, gate + Vector2(TILE * 0.6, -TILE), "queue %d" % n, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1, 0.8, 0.4))
+
+
+## Tutorial pointer: pulsing gold frame plus a bouncing arrow above the tile.
+func _draw_highlights() -> void:
+	var glow := 0.55 + 0.45 * sin(_pulse * 1.5)
+	var gold := Color(1.0, 0.85, 0.25, glow)
+	for cell in highlight_cells:
+		var rect := Rect2(Vector2(cell) * TILE, Vector2(TILE, TILE)).grow(3.0 + 2.0 * glow)
+		draw_rect(rect, gold, false, 3.0)
+		var tip := cell_center(cell) + Vector2(0, -TILE * (0.85 + 0.15 * sin(_pulse * 2.0)))
+		draw_colored_polygon(PackedVector2Array([tip, tip + Vector2(-9, -14), tip + Vector2(9, -14)]), gold)
 
 
 func _draw_hover() -> void:

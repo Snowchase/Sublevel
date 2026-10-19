@@ -5,6 +5,7 @@ extends CanvasLayer
 ##   right panel — open incidents + event log
 ##   bottom      — decision card with clickable branches, hover info, help
 ##   overlay     — session summary (Tab), bankrupt / goal screens
+##   tutorial    — guide panel under the top bar (tutorial mode only)
 
 const C = preload("res://scripts/sim/sim_const.gd")
 const Simulation = preload("res://scripts/sim/simulation.gd")
@@ -15,6 +16,9 @@ signal fire_requested(role: int)
 signal loan_requested
 signal speed_step_requested(step: int)
 signal pause_toggled
+signal menu_requested
+signal tutorial_next_requested
+signal tutorial_exit_requested
 
 const LEFT_W := 268.0
 const RIGHT_W := 300.0
@@ -29,6 +33,7 @@ var sim: Simulation = null
 var hover_text := ""
 var speed_text := ""
 var demand_scale_text := ""
+var tutorial = null                 # tutorial.gd while in tutorial mode, else null
 
 var _top_label: Label
 var _left_info: RichTextLabel
@@ -45,6 +50,14 @@ var _overlay_text: RichTextLabel
 var _left_panel: PanelContainer
 var _right_panel: PanelContainer
 var _top_panel: PanelContainer
+
+var _tutorial_panel: PanelContainer
+var _tut_header: Label
+var _tut_title: Label
+var _tut_body: Label
+var _tut_status: Label
+var _tut_next: Button
+var _tut_exit: Button
 
 var _slow_refresh := 0.0
 var overlay_visible := false
@@ -131,6 +144,9 @@ func _build() -> void:
 	misc_row.add_child(_make_button("Slower", func(): speed_step_requested.emit(-1)))
 	misc_row.add_child(_make_button("Faster", func(): speed_step_requested.emit(1)))
 	left_box.add_child(misc_row)
+	var menu_button := _make_button("Main menu (M)", func(): menu_requested.emit())
+	menu_button.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	left_box.add_child(menu_button)
 
 	# Right panel
 	_right_panel = _make_panel()
@@ -178,6 +194,8 @@ func _build() -> void:
 		+ " · [ ] demand · WASD/drag pan · wheel zoom · Tab summary · F12 screenshot"
 	add_child(_help_label)
 
+	_build_tutorial_panel()
+
 	# Summary overlay
 	_overlay = _make_panel(0.96)
 	_overlay_text = _make_rich(13)
@@ -186,6 +204,70 @@ func _build() -> void:
 	_overlay_text.mouse_filter = Control.MOUSE_FILTER_STOP
 	_overlay.add_child(_overlay_text)
 	_overlay.visible = false
+
+
+func _build_tutorial_panel() -> void:
+	_tutorial_panel = _make_panel(0.95)
+	var sb := _panel_style(0.95)
+	sb.border_color = Color(0.95, 0.82, 0.30)
+	sb.set_border_width_all(2)
+	_tutorial_panel.add_theme_stylebox_override("panel", sb)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 4)
+	_tutorial_panel.add_child(box)
+
+	_tut_header = Label.new()
+	_tut_header.add_theme_font_size_override("font_size", 12)
+	_tut_header.add_theme_color_override("font_color", Color(0.95, 0.82, 0.30))
+	box.add_child(_tut_header)
+
+	_tut_title = Label.new()
+	_tut_title.add_theme_font_size_override("font_size", 19)
+	box.add_child(_tut_title)
+
+	_tut_body = Label.new()
+	_tut_body.add_theme_font_size_override("font_size", 13)
+	_tut_body.add_theme_color_override("font_color", Color(0.82, 0.84, 0.88))
+	_tut_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(_tut_body)
+
+	_tut_status = Label.new()
+	_tut_status.add_theme_font_size_override("font_size", 12)
+	_tut_status.add_theme_color_override("font_color", Color(0.44, 0.83, 1.0))
+	box.add_child(_tut_status)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	_tut_next = _make_button("Next ▶  (Enter)", func(): tutorial_next_requested.emit())
+	_tut_next.add_theme_font_size_override("font_size", 14)
+	row.add_child(_tut_next)
+	_tut_exit = _make_button("Exit to menu", func(): tutorial_exit_requested.emit())
+	row.add_child(_tut_exit)
+	box.add_child(row)
+	_tutorial_panel.visible = false
+
+
+func _refresh_tutorial() -> void:
+	if tutorial == null:
+		_tutorial_panel.visible = false
+		return
+	_tutorial_panel.visible = true
+	var step: Dictionary = tutorial.current()
+	var number: int = tutorial.step_index + 1
+	if tutorial.done_timer >= 0.0:
+		_tut_header.text = "TUTORIAL · STEP %d OF %d   ✓ DONE!" % [number, tutorial.step_count()]
+		_tut_header.add_theme_color_override("font_color", Color(0.48, 0.88, 0.48))
+	else:
+		_tut_header.text = "TUTORIAL · STEP %d OF %d" % [number, tutorial.step_count()]
+		_tut_header.add_theme_color_override("font_color", Color(0.95, 0.82, 0.30))
+	_tut_title.text = String(step["title"])
+	_tut_body.text = String(step["text"])
+	var status: String = tutorial.status_text()
+	_tut_status.text = status
+	_tut_status.visible = status != ""
+	_tut_next.visible = tutorial.is_manual()
+	_tut_next.text = "Start a real game ▶" if tutorial.is_finished() else "Next ▶  (Enter)"
+	_tut_exit.text = "Main menu" if tutorial.is_finished() else "Exit to menu"
 
 
 func _layout() -> void:
@@ -212,6 +294,12 @@ func _layout() -> void:
 	_overlay.size = Vector2(vp.x * 0.76, vp.y * 0.8)
 	_overlay.custom_minimum_size = _overlay.size
 
+	var tut_w := vp.x - LEFT_W - RIGHT_W - MARGIN * 6
+	_tutorial_panel.position = Vector2(LEFT_W + MARGIN * 3, 50)
+	_tutorial_panel.custom_minimum_size = Vector2(tut_w, 0)
+	_tutorial_panel.size = Vector2(tut_w, 0)
+	_tut_body.custom_minimum_size = Vector2(tut_w - 30, 0)
+
 
 # ── Refresh ──────────────────────────────────────────────────────
 
@@ -220,6 +308,7 @@ func refresh(delta: float) -> void:
 		return
 	_refresh_top()
 	_refresh_decision()
+	_refresh_tutorial()
 	_hover_label.text = hover_text
 
 	_slow_refresh -= delta
@@ -251,6 +340,8 @@ func _refresh_top() -> void:
 	var goal := "GOAL REACHED" if sim.goal_reached else "goal: day %d/%d" % [mini(sim.day, C.GOAL_DAYS), C.GOAL_DAYS]
 	if sim.bankrupt:
 		goal = "BANKRUPT"
+	if tutorial != null:
+		goal = "TUTORIAL"
 	_top_label.text = "SUBLEVEL playtest   Day %d (%s)  %s   %s   Balance %s   Today +%s / -%s   Loan %s   %s" % [
 		sim.day, day_kind, sim.clock_text(), speed_text,
 		_money(sim.balance), _money(sim.stats["revenue"]), _money(sim.stats["expenses"]),
@@ -425,7 +516,7 @@ func _refresh_overlay() -> void:
 	elif sim.goal_reached:
 		t += "[font_size=26][color=#7be07b]GOAL REACHED[/color][/font_size]\nSUBLEVEL survived %d days. Keep playing, or press [b]R[/b] to restart.\n\n" % C.GOAL_DAYS
 	else:
-		t += "[font_size=22]Session summary[/font_size]   (Tab to close, R to restart)\n\n"
+		t += "[font_size=22]Session summary[/font_size]   (Tab to close · R restart · M main menu)\n\n"
 
 	t += "Seed %d · demand ×%s · day %d %s\n\n" % [sim.seed_value, demand_scale_text, sim.day, sim.clock_text()]
 	t += "[table=10]"

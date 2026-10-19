@@ -10,6 +10,8 @@ extends SceneTree
 const C = preload("res://scripts/sim/sim_const.gd")
 const Simulation = preload("res://scripts/sim/simulation.gd")
 const DataLoader = preload("res://scripts/sim/data_loader.gd")
+const GameConfig = preload("res://scripts/game/game_config.gd")
+const MAIN_SCENE := "res://scenes/main.tscn"
 
 const TESTS := [
 	"test_data_loads",
@@ -34,6 +36,8 @@ const TESTS := [
 	"test_city_events",
 	"test_street_queue_overflow",
 	"test_hud_and_main_scene_smoke",
+	"test_menu_builds",
+	"test_tutorial_completes",
 	"test_soak_three_days",
 ]
 
@@ -597,7 +601,7 @@ func test_hud_and_main_scene_smoke() -> bool:
 	hud.queue_free()
 
 	# Full main scene: _ready builds the session; drive a few frames by hand.
-	var main = load("res://scenes/main.tscn").instantiate()
+	var main = load(MAIN_SCENE).instantiate()
 	root.add_child(main)
 	check(main.sim != null and main.sim.staff.size() == 3, "main scene starts a session with the starter crew")
 
@@ -710,6 +714,63 @@ func _describe_vehicle(sim: Simulation, v) -> String:
 			parts.append("incident %s at %s state %d staff %d age %d" % [
 				inc.type_name, inc.cell, inc.state, inc.staff_id, sim.tick_count - inc.spawn_tick])
 	return " | ".join(PackedStringArray(parts))
+
+
+func test_menu_builds() -> bool:
+	var menu = load("res://scenes/menu.tscn").instantiate()
+	root.add_child(menu)
+	for key in ["new_game", "tutorial", "help", "quit"]:
+		check(menu._buttons.has(key), "menu has a '%s' button" % key)
+	check(menu.choose_mode("tutorial") == "res://scenes/main.tscn" and GameConfig.mode == "tutorial",
+		"Tutorial button selects tutorial mode and the game scene")
+	menu.choose_mode("play")
+	check(GameConfig.mode == "play", "New Game selects play mode")
+	check(ProjectSettings.get_setting("application/run/main_scene") == "res://scenes/menu.tscn",
+		"the menu is the project's start scene")
+	menu.queue_free()
+	return true
+
+
+## Plays the whole tutorial the way a player would (each step's auto action),
+## running real frames of the main scene in between.
+func test_tutorial_completes() -> bool:
+	GameConfig.mode = "tutorial"
+	var main = load(MAIN_SCENE).instantiate()
+	root.add_child(main)
+	GameConfig.mode = "play"
+	var tut = main.tutorial
+	check(tut != null, "tutorial mode creates a tutorial")
+	if tut == null:
+		main.queue_free()
+		return true
+	check(main.sim.grid.stalls.size() == 12, "tutorial lot has 12 stalls (got %d)" % main.sim.grid.stalls.size())
+	check(main.paused, "tutorial starts paused on the welcome step")
+	check(not main.sim.city_events_enabled and main.sim._next_incident_tick.is_empty(), "no random events in the tutorial")
+	check(main.view.highlight_cells.is_empty(), "highlights not yet drawn before the first frame")
+	main._process(0.0)
+	check(main.view.highlight_cells.size() == 2, "welcome step points at both gates")
+
+	var visited := {0: true}
+	var guard := 0
+	while not tut.is_finished() and guard < 30:
+		var before: int = tut.step_index
+		var title := String(tut.steps[before]["title"])
+		tut.auto_complete_current()
+		var frames := 0
+		while tut.step_index == before and frames < 600:
+			main._process(0.25)
+			frames += 1
+		check(tut.step_index > before, "step %d '%s' completes (%d frames)" % [before + 1, title, frames])
+		if tut.step_index == before:
+			break
+		visited[tut.step_index] = true
+		guard += 1
+	check(tut.is_finished(), "tutorial reaches its final step")
+	check(visited.size() == tut.step_count(), "every step was visited (%d of %d)" % [visited.size(), tut.step_count()])
+	check(GameConfig.is_tutorial_done(), "finishing the tutorial is remembered for the menu")
+	check(main.sim.stats["served"] + main.sim.stats["parked"] > 0, "cars were served during the tutorial")
+	main.queue_free()
+	return true
 
 
 ## Cross-checks the grid's bookkeeping against the agents. Returns problem descriptions.

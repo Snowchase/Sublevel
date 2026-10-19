@@ -36,6 +36,7 @@ var _next_incident_id := 1
 
 # ── City ─────────────────────────────────────────────────────────
 var demand_scale := 1.0              # playtest knob, adjustable in-game
+var city_events_enabled := true      # off in the tutorial (scripted, no surprises)
 var current_lambda := 0.0            # vehicles per real minute, after events + scale
 var active_events: Array = []        # [{ "def": Dictionary, "start": int, "end": int }]
 var _event_cooldown_until: Dictionary = {}
@@ -111,7 +112,8 @@ func tick() -> void:
 		_end_day()
 
 	_update_demand()
-	_tick_city_events()
+	if city_events_enabled:
+		_tick_city_events()
 	_tick_arrivals()
 	_tick_incidents()
 	_dispatch_staff()
