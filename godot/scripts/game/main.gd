@@ -10,6 +10,8 @@ extends Node2D
 ##   --autoplay          pick decision branches automatically (demo / soak)
 ##   --screenshot=PATH   save a PNG after --screenshot-frames frames, then quit
 ##   --screenshot-frames=N  (default 30)
+##   --spawn-incident=TYPE  spawn one incident at start (e.g. SuspiciousVehicle)
+##   --show-summary      open the session summary overlay at start
 
 const C = preload("res://scripts/sim/sim_const.gd")
 const Simulation = preload("res://scripts/sim/simulation.gd")
@@ -107,9 +109,13 @@ func _start_session() -> void:
 		if _opts.has("autoplay"):
 			_autoplay_step()
 
+	# Debug flags for screenshot coverage of specific UI states.
+	if _opts.has("spawn-incident"):
+		sim.spawn_incident(String(_opts["spawn-incident"]))
+
 	tick_accum = 0.0
 	_end_overlay_shown = false
-	hud.set_overlay_visible(false)
+	hud.set_overlay_visible(_opts.has("show-summary"))
 	_update_speed_text()
 	_center_camera()
 
@@ -118,6 +124,8 @@ func _restart() -> void:
 	logger.write(sim, "restart")
 	_opts.erase("seed")          # a restart gets a fresh seed
 	_opts.erase("warmup-ticks")
+	_opts.erase("spawn-incident")
+	_opts.erase("show-summary")
 	_start_session()
 
 
