@@ -282,6 +282,33 @@ Re-run after any change: `run_tests.bat --balance` (Windows) or
 - **Playtest-only knobs:** `scripts/sim/sim_const.gd`, section "Playtest tuning".
   Values tagged `(UE)` match the Unreal build. The rest are the hypotheses above.
 
+## Art
+
+The sprites, textures and menu art were generated with **Higgsfield** (GPT Image
+2.6, "clean illustrated" style) as four sheets, then cut into game assets by a
+script:
+
+| Source sheet (`assets/source/`) | Becomes |
+|---|---|
+| `vehicles_sheet.png` | `assets/vehicles/*.png`: 6 top-down cars, facing right |
+| `staff_icons_sheet.png` | `assets/staff/*.png` (3 roles) and `assets/icons/*.png` (10 incident icons) |
+| `environment_sheet.png` | `assets/tiles/` (seamless concrete and asphalt, wall) and `assets/props/` (gate, oil stain, crack, pillar) |
+| `menu_keyart.png` | `assets/ui/menu_background.jpg` |
+
+The full set cost **3 credits**: two low-quality vehicle tests at 0.25 each, two
+medium sheets at 0.50 each, and the high-quality key art at 1.50. The first test
+came out in a three-quarter view, so the second one forced a strict overhead view.
+
+- **Replace an image:** drop a new sheet into `assets/source/` with the same file
+  name, then run `python3 godot/tools/process_art.py` (needs `pip install pillow`).
+  The script finds each sprite automatically, so new sheets don't have to match an
+  exact grid. They only need the same number of items per row.
+- **Fallback:** if any asset is missing, the game draws that object with the
+  original plain shapes, so a half-finished art swap never breaks the game.
+  `assets/source/` holds a `.gdignore` file, so Godot doesn't import the large
+  originals.
+- **Licensing:** check Higgsfield's terms before you sell the game with these assets.
+
 ## Layout
 
 ```

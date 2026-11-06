@@ -9,6 +9,9 @@ setlocal
 if "%GODOT%"=="" set "GODOT=godot"
 cd /d "%~dp0"
 
+rem Import assets first (textures only load once imported).
+"%GODOT%" --headless --path . --import >nul 2>&1
+
 if "%~1"=="--balance" (
   "%GODOT%" --headless --path . --script res://tests/balance_report.gd -- %2 %3 %4
 ) else (

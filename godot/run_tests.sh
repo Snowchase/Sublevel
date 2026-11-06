@@ -8,6 +8,9 @@ set -euo pipefail
 GODOT="${GODOT:-godot}"
 cd "$(dirname "$0")"
 
+# Import assets first (textures only load once imported). Quiet and quick after the first run.
+"$GODOT" --headless --path . --import >/dev/null 2>&1 || true
+
 if [[ "${1:-}" == "--balance" ]]; then
   shift
   exec "$GODOT" --headless --path . --script res://tests/balance_report.gd -- "$@"

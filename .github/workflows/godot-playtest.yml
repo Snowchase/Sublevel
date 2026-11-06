@@ -104,7 +104,7 @@ jobs:
           import base64, glob, io
           from PIL import Image
           for path in sorted(glob.glob("results/screenshot_*.png")):
-              if not any(k in path for k in ("menu.", "menu_help", "tutorial.", "tutorial6")):
+              if not any(k in path for k in ("menu.", "tutorial6", "busy", "rush")):
                   continue
               im = Image.open(path).convert("RGB")
               im.thumbnail((800, 450))

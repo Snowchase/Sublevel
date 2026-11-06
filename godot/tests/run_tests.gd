@@ -12,6 +12,7 @@ const Simulation = preload("res://scripts/sim/simulation.gd")
 const DataLoader = preload("res://scripts/sim/data_loader.gd")
 const GameConfig = preload("res://scripts/game/game_config.gd")
 const MAIN_SCENE := "res://scenes/main.tscn"
+const Art = preload("res://scripts/game/art.gd")
 
 const TESTS := [
 	"test_data_loads",
@@ -37,6 +38,7 @@ const TESTS := [
 	"test_street_queue_overflow",
 	"test_hud_and_main_scene_smoke",
 	"test_menu_builds",
+	"test_art_assets_load",
 	"test_tutorial_completes",
 	"test_soak_three_days",
 ]
@@ -728,6 +730,23 @@ func test_menu_builds() -> bool:
 	check(ProjectSettings.get_setting("application/run/main_scene") == "res://scenes/menu.tscn",
 		"the menu is the project's start scene")
 	menu.queue_free()
+	return true
+
+
+## Every generated asset is present, imported and loads as a texture.
+## (Needs an import pass first: the editor does it on open; run_tests and CI
+## run `godot --headless --import`.)
+func test_art_assets_load() -> bool:
+	var missing: Array[String] = []
+	for rel in Art.expected_paths():
+		var tex := Art.tex(rel)
+		if tex == null or tex.get_width() <= 0:
+			missing.append(rel)
+	check(missing.is_empty(), "all %d art assets load (missing: %s)" % [Art.expected_paths().size(), ", ".join(PackedStringArray(missing))])
+	check(Art.has_floor_art(), "floor textures available, so the renderer uses art mode")
+	var car := Art.vehicle("Standard")
+	check(car != null and car.get_width() > car.get_height(), "vehicle sprites face sideways (wider than tall)")
+	check(Art.tex("vehicles/NoSuchCar.png") == null, "missing art returns null (shape fallback) instead of erroring")
 	return true
 
 

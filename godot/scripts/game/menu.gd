@@ -8,6 +8,7 @@ extends Control
 
 const GameConfig = preload("res://scripts/game/game_config.gd")
 const DataLoader = preload("res://scripts/sim/data_loader.gd")
+const Art = preload("res://scripts/game/art.gd")
 
 const GAME_SCENE := "res://scenes/main.tscn"
 const GOLD := Color(0.95, 0.82, 0.30)
@@ -19,6 +20,7 @@ var _cars: Array = []                  # backdrop traffic: {x, lane, speed, colo
 var _rng := RandomNumberGenerator.new()
 var _opts: Dictionary = {}
 var _frame := 0
+var _has_key_art := false
 
 
 func _ready() -> void:
@@ -42,14 +44,40 @@ func _ready() -> void:
 # ── Construction ─────────────────────────────────────────────────
 
 func _build() -> void:
+	# Key art behind everything (falls back to the drawn backdrop if missing).
+	var key_art := Art.menu_background()
+	_has_key_art = key_art != null
+	if _has_key_art:
+		var art := TextureRect.new()
+		art.texture = key_art
+		art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		art.set_anchors_preset(Control.PRESET_FULL_RECT)
+		art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(art)
+		var shade := ColorRect.new()
+		shade.color = Color(0.02, 0.03, 0.05, 0.35)
+		shade.set_anchors_preset(Control.PRESET_FULL_RECT)
+		shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(shade)
+
 	var center := CenterContainer.new()
 	center.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(center)
 
+	# A translucent card keeps the title and buttons readable over the art.
+	var card := PanelContainer.new()
+	var card_style := StyleBoxFlat.new()
+	card_style.bg_color = Color(0.03, 0.04, 0.06, 0.72 if _has_key_art else 0.0)
+	card_style.set_corner_radius_all(10)
+	card_style.set_content_margin_all(28)
+	card.add_theme_stylebox_override("panel", card_style)
+	center.add_child(card)
+
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 10)
 	column.alignment = BoxContainer.ALIGNMENT_CENTER
-	center.add_child(column)
+	card.add_child(column)
 
 	var title := Label.new()
 	title.text = "SUBLEVEL"
@@ -219,6 +247,8 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
+	if _has_key_art:
+		return   # the key art TextureRect is the backdrop
 	var s := size
 	draw_rect(Rect2(Vector2.ZERO, s), Color(0.05, 0.05, 0.07))
 	var stall_w := 34.0
