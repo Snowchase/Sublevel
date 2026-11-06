@@ -64,6 +64,12 @@ jobs:
           timeout 600 ~/godot/godot --headless --path godot --script res://tests/balance_report.gd -- --days=5 --seeds=6 --demands=0.5,1,1.5,2 2>&1 | tee results/balance.txt
           cp ~/.local/share/godot/app_userdata/"SUBLEVEL Playtest"/balance_report.json results/ || true
 
+      - name: Playtest bots (player styles)
+        if: always()
+        run: |
+          set -o pipefail
+          timeout 900 ~/godot/godot --headless --path godot --script res://tests/playtest_bots.gd 2>&1 | tee results/playtest_bots.txt
+
       - name: Install virtual display
         if: always()
         run: |
