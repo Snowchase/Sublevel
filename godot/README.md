@@ -295,9 +295,11 @@ script:
 | `environment_sheet.png` | `assets/tiles/` (seamless concrete and asphalt, wall) and `assets/props/` (gate, oil stain, crack, pillar) |
 | `menu_keyart.png` | `assets/ui/menu_background.jpg` |
 
-The full set cost **3 credits**: two low-quality vehicle tests at 0.25 each, two
-medium sheets at 0.50 each, and the high-quality key art at 1.50. The first test
-came out in a three-quarter view, so the second one forced a strict overhead view.
+The full set cost **4.5 credits**: two low-quality vehicle tests at 0.25 each, two
+medium sheets at 0.50 each, and the high-quality key art at 1.50, plus one 1.50
+edit of the key art. The first vehicle test came out in a three-quarter view, so
+the second one forced a strict overhead view. The key-art edit turned the blue
+accessible van, which had been drawn side-on, to match the other parked cars.
 
 - **Replace an image:** drop a new sheet into `assets/source/` with the same file
   name, then run `python3 godot/tools/process_art.py` (needs `pip install pillow`).
