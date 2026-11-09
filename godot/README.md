@@ -85,8 +85,8 @@ Finishing it puts a ✓ next to Tutorial in the menu. **Exit to menu** leaves at
 Survive **7 in-game days** with the highest **net worth** you can (one day is about
 12 real minutes at ×1, or about 1.5 minutes at ×8). Net worth is your cash, minus
 what you owe the bank, plus 80% of everything you spent building the garage.
-At the end you get a rating: **Bronze** from $3,000, **Silver** from $7,000, **Gold**
-from $12,000.
+At the end you get a rating: **Bronze** from $3,000, **Silver** from $5,000, **Gold**
+from $9,000.
 
 **Money.** You start with $2,500 and 36 stalls on a floor built for 144. Cars pay
 $3 per in-game hour by default, scaled by vehicle type, and ×1.5 during surge events.
@@ -201,10 +201,11 @@ The test suite checks:
 - **Menu and tutorial:** the menu builds and routes to the right mode, and a scripted player completes all 10 tutorial steps.
 - **3-day soak:** bookkeeping invariants hold, no car is stuck for long, and the sim is fast enough for ×16.
 
-The balance report simulates 5 full days × 3 seeds at demand ×0.5–×3 for two players:
+The balance report simulates 5 full days × 3 seeds (6 in CI) at demand ×0.5–×3 for two players:
 an attentive one (answers every card) and a neglectful one (ignores them). It prints
 profit, cars served, turned away and lost, peak and average occupancy, reputation
-and bankruptcies, then marks each tension target HIT or MISS (see section 8). Use
+and bankruptcies, plus a table of profit by garage size, then marks each tension
+target HIT or MISS (see section 8). Use
 `-- --days=7 --seeds=5` for a longer run.
 
 Screenshot or demo mode, for checking visuals without playing:
@@ -259,47 +260,86 @@ one floor), build mode (§13), CCTV view, save/load.
 
 ## 8. Automated balance results
 
-Measured by the headless balance report on Godot 4.5.1 in CI. Setup: 40-stall lot,
-**6 seeds × 5 full days** per row, starter crew. Two simulated players:
-**attentive** answers every card after about 10 s with the best-paying option;
-**neglectful** never answers a card.
+Measured in CI on Godot 4.5.1. Two tools:
+- **Balance report** (`tests/balance_report.gd`): 6 seeds × 5 full days per row, on the
+  36-stall start with the starter crew. **Attentive** answers every card after about 10 s
+  with the best-paying option; **neglectful** never answers.
+- **Playtest bots** (`tests/playtest_bots.gd`): ten scripted player styles, each playing
+  full 7-day games on 4 seeds.
+
+### Starting garage (36 stalls, no growth)
 
 | Demand | Attentive profit/day | Neglectful profit/day | Rush-hour peak | Turned away + lost/day (attentive) | Reputation (attentive / neglectful) |
 |---|---|---|---|---|---|
-| ×0.5 | −$175 | −$450 | 58% | 3 | 94 / 3 |
-| **×1** | **+$356** | **−$72** | **76%** | **13** | **79 / 14** |
-| ×1.5 | +$707 | +$298 | 88% | 29 | 61 / 23 |
-| ×2 | +$764 | +$502 | 92% | 50 | 34 / 9 |
+| ×0.5 | −$381 | −$626 (2 of 6 runs bankrupt) | 60% | 2 | 97 / 3 |
+| **×1** | **+$148** | **−$241** | **82%** | **12** | **86 / 22** |
+| ×1.5 | +$435 | +$62 | 95% | 38 | 49 / 16 |
+| ×2 | +$657 | +$239 | 97% | 51 | 29 / 3 |
 
-All four tension targets are met at ×1:
-- Careful play earns a thin profit ($50–400 a day).
-- Rush hour fills the lot to at least 75%.
-- Some cars (1–15 a day) are turned away or lost.
-- Neglect loses money.
+All four tension targets are met at ×1. Careful play earns a thin profit, rush hour
+fills the lot, some cars are turned away, and neglect loses money.
+
+### What each expansion is worth (attentive player, demand ×1, built from day 1)
+
+| Sections | Stalls | Profit/day | Rent/day | Rush-hour peak | Reputation | Cost |
+|---|---|---|---|---|---|---|
+| 1 | 36 | +$193 | $868 | 82% | 83 | — |
+| 2 | 72 | +$924 | $1,286 | 83% | 73 | $2,000 |
+| 3 | 108 | +$1,424 | $1,703 | 82% | 70 | $4,500 |
+| 4 | 144 | +$1,815 | $2,121 | 71% | 60 | $8,000 |
+
+Each section pays for itself in a few days, but incidents and rent grow with it, and
+reputation is harder to hold.
+
+### Player styles over a full 7-day game
+
+| Style | Net worth | Lowest balance | Stalls | Bankrupt |
+|---|---|---|---|---|
+| **builder**: one $5k loan on day 1, expands when it can still pay tonight's bills | **$5,190** | $245 | 108 | 0/4 |
+| reckless: borrows $10k, expands as fast as possible | $5,678 | −$1,718 | 144 | **2/4** |
+| shady: always sides with Shadow clients | $3,191 | $1,656 | 36 | 0/4 |
+| careful: answers every card, never grows | $3,007 | $1,875 | 36 | 0/4 |
+| lawful | $2,665 | $1,856 | 36 | 0/4 |
+| smart_manager: careful + hires/fires each hour | $2,659 | $1,886 | 36 | 0/4 |
+| premium: careful at $4.50/h | $2,634 | $1,692 | 36 | 0/4 |
+| loan_shark: borrows $10k, never grows | $1,800 | — | 36 | 0/4 |
+| absent: never does anything | $393 | $393 | 36 | 0/4 |
+| greedy: takes the most money, fires Attendant + Security | −$336 | −$348 | 36 | **2/4** |
+
+What this shows:
+- **Growing wins.** One loan spent on expansion beats every no-growth style by about
+  $2,000. Without a loan, the first expansion is affordable only on day 4 and doesn't
+  pay back within the week (builder without a loan ended at $2,913).
+- **Overreaching loses.** Max loans plus max expansion has the highest upside but
+  went bankrupt in half the runs.
+- **Firing the crew loses.** City fines turned the old winning strategy (greedy:
+  +$5,023 before these changes) into the worst one, with half the runs bankrupt.
+- **Borrowing without a plan loses.** Interest makes the loan shark's net worth worse
+  than careful play.
+- Raising the price to $4.50 lost money at ×1 demand. It should only pay off when
+  the garage is overflowing.
 
 How it got here (each round was a CI run):
-1. **Smaller lot only:** reputation collapsed to about 0 for everyone. Concert
-   crowds sized for 144 stalls (50 cars) swamped the street queue and cost
-   reputation the player couldn't prevent. Event crowds now scale with lot size.
-2. **Rebalanced reputation:** 3 of 4 targets hit, but rush hour peaked at only 62%.
-3. **Demand ×1.7, $3/hour:** rush hour at 81%, but careful play earned $457 a day,
-   above the $400 ceiling.
-4. **Rent $750:** all four targets hit.
+1. **Expansions at $4,000 / $7,000 / $10,000, rent $18 per stall:** no one could
+   afford to expand, and extra stalls barely covered their own rent.
+2. **Cheaper expansions ($2,000 / $4,500 / $8,000), rent $10 per stall, three red
+   nights rule:** expanding paid off and greedy went bankrupt, but net worth counted
+   construction at only 50%, so builders barely beat careful play.
+3. **Net worth counts 80% of construction:** a builder that never borrows still
+   tied with careful play (the first expansion came too late).
+4. **Builder takes one loan:** the result above.
 
-Above ×1.5 demand, both players make money, because the lot is full either way.
-Reputation pulls demand back down as overflow grows. Whether that feels good is a
-question for human playtesting.
-
-Still open: neglect loses money (about $430 a day worse than careful play), but
-only slowly. No simulated run went bankrupt within 5 days, and with only 3 seeds
-the neglectful player's result swung from −$9 to −$173 a day, which is why CI now
-uses 6. If losing should feel more threatening, the next levers are a bigger
-reputation penalty for ignored cards or harsher default outcomes in
-`IncidentTypes.json`. A human who also fires
-staff or takes loans may find a different story.
+Still open:
+- The absent player loses badly (rep 35, $2,600 behind careful) but doesn't go
+  bankrupt within 7 days at normal demand. It does at low demand (×0.5).
+- Shady play earns slightly more than careful play.
+- The day-6 builder dip (146 cars turned away) comes from a stadium-night crowd on
+  a 108-stall garage. Whether big-lot events feel fair is a question for human
+  playtesting.
 
 Re-run after any change: `run_tests.bat --balance` (Windows) or
-`./run_tests.sh --balance`. The report prints HIT or MISS for each target.
+`./run_tests.sh --balance`. The report prints HIT or MISS for each target. Run the
+bots with `godot --headless --path . --script res://tests/playtest_bots.gd`.
 
 ## 9. Tuning
 

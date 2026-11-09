@@ -108,7 +108,7 @@ const CCTV_COST := 1200.0                       # per level
 const CCTV_MAX_LEVEL := 2
 const CCTV_CRIME_FACTOR := 0.7                  # crime incident rates × 0.7 per level
 const ASSET_VALUE_SHARE := 0.8                  # the garage is valued at 80% of what you invested
-const SCORE_RATINGS := [[12000.0, "Gold"], [7000.0, "Silver"], [3000.0, "Bronze"]]
+const SCORE_RATINGS := [[9000.0, "Gold"], [5000.0, "Silver"], [3000.0, "Bronze"]]   # bots: careful ≈ $3k, one-loan builder ≈ $5k
 
 # ── Pressure: ways to lose ───────────────────────────────────────
 const UNDERSTAFFED_FINE := 300.0                # per missing role (Attendant, Security) per night
