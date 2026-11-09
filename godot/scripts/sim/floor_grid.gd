@@ -26,6 +26,7 @@ var stalls: Array[Vector2i] = []
 # Each is [first_row, last_row]; section 0 holds the gates.
 var sections: Array = []
 var built_sections := 0
+var _built_stalls := -1                  # cached; -1 = recount
 var unreachable_stalls := {}             # Vector2i -> true
 
 var entry_gate := NO_CELL
@@ -143,6 +144,7 @@ func generate_default_layout(w: int = 24, h: int = 16) -> void:
 	sections.append([start, h - 1])
 	built_sections = sections.size()
 
+	_built_stalls = -1
 	_rebuild_astar()
 	_compute_reachability()
 
@@ -154,6 +156,7 @@ func limit_built_sections(count: int) -> void:
 		for y in range(int(sections[i][0]), int(sections[i][1]) + 1):
 			for x in width:
 				locked[idx(Vector2i(x, y))] = 1
+	_built_stalls = -1
 	_rebuild_astar()
 	_compute_reachability()
 
@@ -170,6 +173,7 @@ func build_next_section() -> int:
 			locked[idx(cell)] = 0
 			astar.set_point_solid(cell, not is_passable(cell))
 	built_sections += 1
+	_built_stalls = -1
 	_compute_reachability()
 	return built_stall_count() - before
 
@@ -191,11 +195,12 @@ func next_section_stalls() -> int:
 
 
 func built_stall_count() -> int:
-	var n := 0
-	for s in stalls:
-		if locked[idx(s)] == 0:
-			n += 1
-	return n
+	if _built_stalls < 0:
+		_built_stalls = 0
+		for s in stalls:
+			if locked[idx(s)] == 0:
+				_built_stalls += 1
+	return _built_stalls
 
 
 ## Last built row (for camera framing).
