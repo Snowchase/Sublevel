@@ -20,7 +20,7 @@ const POLICIES := {
 	"shady": "always sides with Shadow clients",
 	"lawful": "always sides with Police + City",
 	"loan_shark": "careful, but takes the full $10k of loans on day 1",
-	"builder": "careful + expands when it can still pay tonight's bills (hires 1 Maint. per section), then upgrades",
+	"builder": "careful + one $5k loan on day 1; expands when it can still pay tonight's bills (+1 Maint. per section)",
 	"reckless": "borrows the full $10k on day 1 and expands as fast as possible",
 	"premium": "careful, but charges $4.50/h instead of $3",
 	"absent": "never answers a card, never manages anything",
@@ -60,6 +60,8 @@ func _play(policy: String, session_seed: int) -> Dictionary:
 		sim.fire_staff(C.Role.SECURITY)
 	if policy == "loan_shark" or policy == "reckless":
 		sim.take_loan()
+		sim.take_loan()
+	if policy == "builder":
 		sim.take_loan()
 	if policy == "premium":
 		sim.set_price(4.5)
