@@ -415,6 +415,10 @@ func _refresh_left() -> void:
 		missing.append("Security")
 	if not missing.is_empty():
 		t += "[color=#ff6b5e]City fine tonight: no %s ($%d each)[/color]\n" % [" / ".join(PackedStringArray(missing)), int(C.UNDERSTAFFED_FINE)]
+	if sim.red_nights > 0:
+		t += "[color=#ff6b5e]IN THE RED: %d of %d nights — end tonight above $0![/color]\n" % [sim.red_nights, C.RED_NIGHTS_LIMIT]
+	elif sim.balance < 0.0:
+		t += "[color=#ffb347]Below $0: %d nights in a row and the bank closes you[/color]\n" % C.RED_NIGHTS_LIMIT
 	t += "Gate: %.1fs per car%s\n" % [sim.gate_ticks_per_car() * C.TICK_SECONDS,
 		"  [color=#ffb347](no attendant)[/color]" if sim.count_staff(C.Role.ATTENDANT) == 0 else ""]
 	t += "\n[b]STAFF[/b]\n"
@@ -570,7 +574,9 @@ func set_overlay_visible(value: bool) -> void:
 func _refresh_overlay() -> void:
 	var t := ""
 	if sim.bankrupt:
-		t += "[font_size=26][color=#ff6b5e]BANKRUPT[/color][/font_size]\nYour balance fell below %s. Press [b]R[/b] to restart.\n\n" % _money(C.BANKRUPT_THRESHOLD)
+		var why := "You ended %d nights in a row below $0" % C.RED_NIGHTS_LIMIT if sim.balance >= C.BANKRUPT_THRESHOLD \
+			else "Your balance fell below %s" % _money(C.BANKRUPT_THRESHOLD)
+		t += "[font_size=26][color=#ff6b5e]BANKRUPT[/color][/font_size]\n%s. Press [b]R[/b] to restart.\n\n" % why
 	elif sim.goal_reached:
 		var goal_fmt := "[font_size=26][color=#7be07b]GOAL REACHED[/color][/font_size]\nSUBLEVEL survived %d days. " \
 			+ "Final score: net worth [b]%s[/b] — [color=#f2d24a][b]%s[/b][/color].\nKeep playing, or press [b]R[/b] to restart.\n\n"

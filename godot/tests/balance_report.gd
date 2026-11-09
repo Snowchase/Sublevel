@@ -32,12 +32,17 @@ func _initialize() -> void:
 	var days := 5
 	var seeds := 3
 	var demands: Array[float] = [0.5, 1.0, 1.5, 2.0, 3.0]
+	var sizes_to_run: Array[int] = [1, 2, 3, 4]
 	for arg in OS.get_cmdline_user_args():
 		var a := String(arg)
 		if a.begins_with("--days="):
 			days = maxi(1, int(a.substr(7)))
 		elif a.begins_with("--seeds="):
 			seeds = maxi(1, int(a.substr(8)))
+		elif a.begins_with("--sizes="):
+			sizes_to_run.clear()
+			for part in a.substr(8).split(","):
+				sizes_to_run.append(int(part))
 		elif a.begins_with("--demands="):
 			demands.clear()
 			for part in a.substr(10).split(","):
@@ -54,7 +59,7 @@ func _initialize() -> void:
 	var stalls: int = probe.grid.built_stall_count()
 
 	print("\n=== SUBLEVEL balance report — %d full day(s) × %d seed(s) per row ===" % [days, seeds])
-	print("Lot: %d stalls (no expansions in this report). Start: $%d cash. Day-1 rent $%d (+%d%%/day) + starter wages $%d. Bankrupt below $%d." % [
+	print("Lot: %d stalls (no expansions except the size table). Start: $%d cash. Day-1 rent $%d (+%d%%/day) + starter wages $%d. Bankrupt below $%d." % [
 		stalls, int(C.STARTING_BALANCE), int(probe.daily_rent()), int(C.RENT_GROWTH * 100),
 		int(C.STAFF_WAGES[0] + C.STAFF_WAGES[1] + C.STAFF_WAGES[2]), int(C.BANKRUPT_THRESHOLD)])
 
@@ -75,6 +80,21 @@ func _initialize() -> void:
 				row["decisions_expired"], "%d/%d" % [row["bankrupt_runs"], seeds]])
 		report[policy] = rows
 
+	# What each expansion is worth: the attentive player on a bigger floor
+	# from day 1 (one extra Maintenance worker per extra section).
+	print("\n--- attentive player by garage size (demand ×1, %d seed(s)) ---" % mini(seeds, 4))
+	print("%-8s %6s %8s %8s %8s %8s %5s %5s %5s %8s" % [
+		"sections", "stalls", "profit", "revenue", "costs", "rent", "peak%", "rep", "incid", "cost"])
+	var sizes: Array = []
+	for sections in sizes_to_run:
+		var row := _run_row(data, "attentive", 1.0, days, mini(seeds, 4), 0, sections)
+		sizes.append(row)
+		var cost_text := "-" if sections <= 1 else "$%d" % int(C.EXPANSION_COSTS[sections - 2])
+		print("%-8d %6d %8.0f %8.0f %8.0f %8.0f %5.0f %5.0f %5.1f %8s" % [
+			sections, row["stalls"], row["profit"], row["revenue"], row["expenses"], row["rent"],
+			row["peak_pct"], row["reputation"], row["incidents"], cost_text])
+	report["by_size"] = sizes
+
 	print("\nColumns (per full day): served/turned/lost = cars (turned = no stall in time, lost = gave up in the")
 	print("street queue), peak%/avg% = stall occupancy, rep = reputation at the end, incid = incidents,")
 	print("ignord = decision cards that timed out, bankrupt = runs that went bankrupt.")
@@ -89,7 +109,9 @@ func _initialize() -> void:
 	quit(0)
 
 
-func _run_row(data: DataLoader, policy: String, demand: float, days: int, seeds: int, stalls: int) -> Dictionary:
+## stalls = 0 → use the lot's built stall count (for size rows).
+func _run_row(data: DataLoader, policy: String, demand: float, days: int, seeds: int, stalls: int,
+		sections: int = C.START_SECTIONS) -> Dictionary:
 	var keys := ["revenue", "expenses", "served", "turned_away", "lost_at_gate",
 		"peak_occupancy", "avg_occupancy", "incidents", "decisions_expired"]
 	var totals := {}
@@ -98,8 +120,11 @@ func _run_row(data: DataLoader, policy: String, demand: float, days: int, seeds:
 	var day_count := 0
 	var rep_total := 0.0
 	var bankrupt_runs := 0
+	var rent_total := 0.0
 	for s in seeds:
-		var sim := _run_session(data, policy, 1000 + s, demand, days)
+		var sim := _run_session(data, policy, 1000 + s, demand, days, sections)
+		if stalls <= 0:
+			stalls = sim.grid.built_stall_count()
 		rep_total += sim.reputation
 		if sim.bankrupt:
 			bankrupt_runs += 1
@@ -107,23 +132,29 @@ func _run_row(data: DataLoader, policy: String, demand: float, days: int, seeds:
 			day_count += 1
 			for k in keys:
 				totals[k] = float(totals[k]) + float(d[k])
+			rent_total += float(d["expenses_by"].get("rent", 0.0))
 	var n := float(maxi(day_count, 1))
-	var row := {"demand": demand, "bankrupt_runs": bankrupt_runs, "reputation": rep_total / seeds}
+	var row := {"demand": demand, "bankrupt_runs": bankrupt_runs, "reputation": rep_total / seeds,
+		"stalls": stalls, "sections": sections}
 	for k in keys:
 		row[k] = float(totals[k]) / n
 	row["profit"] = float(row["revenue"]) - float(row["expenses"])
+	row["rent"] = rent_total / n
 	row["peak_pct"] = 100.0 * float(row["peak_occupancy"]) / stalls
 	row["avg_pct"] = 100.0 * float(row["avg_occupancy"]) / stalls
 	return row
 
 
-func _run_session(data: DataLoader, policy: String, session_seed: int, demand: float, days: int) -> Simulation:
+func _run_session(data: DataLoader, policy: String, session_seed: int, demand: float, days: int,
+		sections: int = C.START_SECTIONS) -> Simulation:
 	var sim := Simulation.new()
-	sim.setup(session_seed, data)
+	sim.setup(session_seed, data, C.START_LOT_SIZE, sections)
 	sim.demand_scale = demand
 	sim.hire_staff(C.Role.ATTENDANT)
 	sim.hire_staff(C.Role.SECURITY)
 	sim.hire_staff(C.Role.MAINTENANCE)
+	for _extra in sim.grid.built_sections - 1:
+		sim.hire_staff(C.Role.MAINTENANCE)
 	# Sessions start at 06:00, so day 1 is partial: run it as warm-up and
 	# then simulate `days` full 24h days (only those are averaged).
 	var first_midnight := sim.tick_count - sim.tick_count % C.TICKS_PER_DAY + C.TICKS_PER_DAY

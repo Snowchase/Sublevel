@@ -59,6 +59,7 @@ var invested := 0.0                     # money spent on expansions and upgrades
 var _gate_busy := 0                    # ticks until the entry gate takes the next car
 var factions: Dictionary = {"city_authority": 0.0, "police": 0.0, "shadow_clients": 0.0}
 var bankrupt := false
+var red_nights := 0                     # midnights in a row that closed below $0
 var goal_reached := false
 
 # ── Telemetry ────────────────────────────────────────────────────
@@ -894,9 +895,17 @@ func _end_day() -> void:
 	day = int(tick_count / C.TICKS_PER_DAY) + 1
 	_reset_day_stats()
 
-	if balance < C.BANKRUPT_THRESHOLD and not bankrupt:
-		bankrupt = true
-		log_message("BANKRUPT — the bank has called in your loans.", "bad")
+	red_nights = red_nights + 1 if balance < 0.0 else 0
+	if not bankrupt:
+		if balance < C.BANKRUPT_THRESHOLD:
+			bankrupt = true
+			log_message("BANKRUPT — the bank has called in your loans.", "bad")
+		elif red_nights >= C.RED_NIGHTS_LIMIT:
+			bankrupt = true
+			log_message("BANKRUPT — %d nights in a row in the red." % red_nights, "bad")
+		elif red_nights > 0:
+			log_message("In the red: %d of %d nights. Get back above $0 or the bank closes you." % [
+				red_nights, C.RED_NIGHTS_LIMIT], "bad")
 	if day > C.GOAL_DAYS and not goal_reached and not bankrupt:
 		goal_reached = true
 		log_message("Goal reached: you kept SUBLEVEL open for %d days!" % C.GOAL_DAYS, "good")

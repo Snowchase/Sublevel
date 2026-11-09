@@ -1,4 +1,5 @@
 extends SceneTree
+# gdlint: disable=max-file-lines
 ## SUBLEVEL playtest — headless test suite.
 ##
 ##   godot --headless --path godot --script res://tests/run_tests.gd
@@ -679,6 +680,26 @@ func test_bankruptcy() -> bool:
 	sim.tick_count = C.TICKS_PER_DAY - 1
 	sim.tick()
 	check(sim.bankrupt, "bankrupt at day end below the threshold")
+
+	# Slightly negative is survivable, but not for RED_NIGHTS_LIMIT nights in a row.
+	var red := quiet_sim()
+	for night in C.RED_NIGHTS_LIMIT:
+		check(not red.bankrupt, "still open after %d red night(s)" % night)
+		red.balance = -50.0
+		red.tick_count = (night + 1) * C.TICKS_PER_DAY - 1
+		red.tick()
+		if night == 0:
+			check(red.red_nights == 1, "first red night counted")
+	check(red.bankrupt, "bankrupt after %d red nights" % C.RED_NIGHTS_LIMIT)
+
+	var back := quiet_sim()
+	back.balance = -50.0
+	back.tick_count = C.TICKS_PER_DAY - 1
+	back.tick()
+	back.balance = 5000.0              # stays above $0 after tonight's rent
+	back.tick_count = 2 * C.TICKS_PER_DAY - 1
+	back.tick()
+	check(back.red_nights == 0 and not back.bankrupt, "a night above $0 resets the count")
 	return true
 
 

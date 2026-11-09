@@ -20,7 +20,7 @@ const POLICIES := {
 	"shady": "always sides with Shadow clients",
 	"lawful": "always sides with Police + City",
 	"loan_shark": "careful, but takes the full $10k of loans on day 1",
-	"builder": "careful + expands whenever it can keep a $1.5k cushion, then buys upgrades",
+	"builder": "careful + expands whenever it can keep a $500 cushion (hires 1 Maint. per section), then upgrades",
 	"reckless": "borrows the full $10k on day 1 and expands as fast as possible",
 	"premium": "careful, but charges $4.50/h instead of $3",
 	"absent": "never answers a card, never manages anything",
@@ -41,9 +41,8 @@ func _initialize() -> void:
 		results[policy] = runs
 	_report_outcomes(results)
 	_report_pacing(results["careful"])
-	_report_progression(results["careful"])
-	print("\n(builder)")
-	_report_progression(results["builder"])
+	_report_progression("careful", results["careful"])
+	_report_progression("builder", results["builder"])
 	_report_decisions(results)
 	quit(0)
 
@@ -98,10 +97,11 @@ func _play(policy: String, session_seed: int) -> Dictionary:
 			hires += acted.x
 			fires += acted.y
 		if (policy == "builder" or policy == "reckless") and sim.tick_count % C.TICKS_PER_HOUR == 0:
-			var cushion := 1500.0 if policy == "builder" else 0.0
+			var cushion := 500.0 if policy == "builder" else 0.0
 			var cost: float = sim.expansion_cost()
 			if cost > 0.0 and sim.balance >= cost + cushion:
-				sim.buy_expansion()
+				if sim.buy_expansion() and policy == "builder":
+					sim.hire_staff(C.Role.MAINTENANCE)
 			elif cost < 0.0 and policy == "builder":
 				if not sim.has_ticket_machine and sim.balance >= C.TICKET_MACHINE_COST + cushion:
 					sim.buy_ticket_machine()
@@ -204,9 +204,14 @@ func _report_outcomes(results: Dictionary) -> void:
 				fc[f].append(r["factions"][f])
 			if r["bankrupt"]:
 				bankrupt += 1
-		print("%-14s %9.0f %9.0f %9.0f %6.0f %6.0f %8s %7.0f %7.0f %7.0f  %s" % [
+		var days_text := ""
+		for r in runs:
+			if r["bankrupt"]:
+				days_text += " d%d" % r["bankrupt_day"]
+		print("%-14s %9.0f %9.0f %9.0f %6.0f %6.0f %8s %7.0f %7.0f %7.0f  %s%s" % [
 			policy, _avg(bal), _avg(nw), _avg(low), _avg(stall_counts), _avg(rep), "%d/%d" % [bankrupt, runs.size()],
-			_avg(fc["city_authority"]), _avg(fc["police"]), _avg(fc["shadow_clients"]), POLICIES[policy]])
+			_avg(fc["city_authority"]), _avg(fc["police"]), _avg(fc["shadow_clients"]), POLICIES[policy],
+			("  [bankrupt on%s]" % days_text) if days_text != "" else ""])
 
 	# City events each style triggered.
 	print("\n--- City events seen per run (all styles) ---")
@@ -260,9 +265,10 @@ func _report_pacing(runs: Array) -> void:
 	print("Share of play time spent in quiet stretches of 60s+ with nothing new: %.0f%%" % _avg(quiet_share))
 
 
-func _report_progression(runs: Array) -> void:
-	print("\n--- Day-by-day for the careful player (average of seeds) ---")
-	print("%-5s %8s %8s %8s %6s %6s %6s %6s" % ["day", "revenue", "costs", "profit", "rep", "served", "turned", "cards"])
+func _report_progression(policy: String, runs: Array) -> void:
+	print("\n--- Day-by-day for the %s player (average of seeds) ---" % policy)
+	print("%-5s %8s %8s %8s %6s %6s %6s %6s %6s" % [
+		"day", "revenue", "costs", "profit", "rep", "served", "turned", "cards", "stalls"])
 	for i in DAYS:
 		var rev: Array = []
 		var cost: Array = []
@@ -270,6 +276,7 @@ func _report_progression(runs: Array) -> void:
 		var served: Array = []
 		var turned: Array = []
 		var cards: Array = []
+		var stalls: Array = []
 		for r in runs:
 			if i < r["days"].size():
 				var d: Dictionary = r["days"][i]
@@ -279,8 +286,10 @@ func _report_progression(runs: Array) -> void:
 				served.append(d["served"])
 				turned.append(int(d["turned_away"]) + int(d["lost_at_gate"]))
 				cards.append(int(d["decisions_made"]) + int(d["decisions_expired"]))
-		print("%-5d %8.0f %8.0f %8.0f %6.0f %6.0f %6.0f %6.0f" % [
-			i + 1, _avg(rev), _avg(cost), _avg(rev) - _avg(cost), _avg(rep), _avg(served), _avg(turned), _avg(cards)])
+				stalls.append(int(d["stall_count"]))
+		print("%-5d %8.0f %8.0f %8.0f %6.0f %6.0f %6.0f %6.0f %6.0f" % [
+			i + 1, _avg(rev), _avg(cost), _avg(rev) - _avg(cost), _avg(rep), _avg(served), _avg(turned), _avg(cards),
+			_avg(stalls)])
 
 
 func _report_decisions(results: Dictionary) -> void:

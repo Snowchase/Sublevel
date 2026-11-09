@@ -82,8 +82,8 @@ const DEMAND_CURVE_SCALE := 1.7
 const STARTING_BALANCE := 2500.0                # UE: 10000
 # Rent is paid at midnight: a base plus a per-stall charge, rising a little
 # every day (inflation) so a garage that never grows slowly loses ground.
-const RENT_BASE := 100.0
-const RENT_PER_STALL := 18.0                    # 36 stalls → $748/day, 144 → $2,692
+const RENT_BASE := 388.0
+const RENT_PER_STALL := 10.0                    # 36 stalls → $748/day, 144 → $1,828
 const RENT_GROWTH := 0.05                       # +5% per day, compounding
 const HOURLY_RATE := 3.0                        # UE: 4. Default $ per in-game hour
 const PRICE_MIN := 1.5                          # the player can set the rate in this range
@@ -97,11 +97,12 @@ const MAX_LOAN_PRINCIPAL := 10000.0             # the bank stops lending past th
 const LOAN_INTEREST_RATE := 0.02                # (UE) daily, on principal
 const LOAN_REPAYMENT_FRACTION := 0.05           # (UE) of principal, daily
 const BANKRUPT_THRESHOLD := -2000.0             # UE: -5000. Checked at day end.
+const RED_NIGHTS_LIMIT := 3                     # this many midnights in a row below $0 → bankrupt
 
 # ── Growth: what money buys ──────────────────────────────────────
-const EXPANSION_COSTS := [4000.0, 7000.0, 10000.0]   # sections 1, 2, 3 (+36 stalls each)
+const EXPANSION_COSTS := [2000.0, 4500.0, 8000.0]    # sections 1, 2, 3 (+36 stalls each)
 const CAPACITY_REFERENCE_STALLS := 36.0         # demand is tuned for the 36-stall start
-const CAPACITY_DEMAND_EXPONENT := 0.85          # a bigger garage draws more drivers: × (stalls/36)^0.85
+const CAPACITY_DEMAND_EXPONENT := 0.9           # a bigger garage draws more drivers: × (stalls/36)^0.9
 const TICKET_MACHINE_COST := 1500.0             # faster gate even without an attendant
 const CCTV_COST := 1200.0                       # per level
 const CCTV_MAX_LEVEL := 2
