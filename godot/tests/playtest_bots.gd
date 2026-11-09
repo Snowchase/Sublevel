@@ -20,7 +20,7 @@ const POLICIES := {
 	"shady": "always sides with Shadow clients",
 	"lawful": "always sides with Police + City",
 	"loan_shark": "careful, but takes the full $10k of loans on day 1",
-	"builder": "careful + expands whenever it can keep a $500 cushion (hires 1 Maint. per section), then upgrades",
+	"builder": "careful + expands when it can still pay tonight's bills (hires 1 Maint. per section), then upgrades",
 	"reckless": "borrows the full $10k on day 1 and expands as fast as possible",
 	"premium": "careful, but charges $4.50/h instead of $3",
 	"absent": "never answers a card, never manages anything",
@@ -97,7 +97,7 @@ func _play(policy: String, session_seed: int) -> Dictionary:
 			hires += acted.x
 			fires += acted.y
 		if (policy == "builder" or policy == "reckless") and sim.tick_count % C.TICKS_PER_HOUR == 0:
-			var cushion := 500.0 if policy == "builder" else 0.0
+			var cushion := _tonights_bills(sim) if policy == "builder" else 0.0
 			var cost: float = sim.expansion_cost()
 			if cost > 0.0 and sim.balance >= cost + cushion:
 				if sim.buy_expansion() and policy == "builder":
@@ -110,7 +110,7 @@ func _play(policy: String, session_seed: int) -> Dictionary:
 
 	return {
 		"policy": policy, "seed": session_seed, "sim": sim,
-		"bankrupt": sim.bankrupt, "bankrupt_day": sim.day if sim.bankrupt else 0,
+		"bankrupt": sim.bankrupt, "bankrupt_day": sim.day_history.size() if sim.bankrupt else 0,
 		"final_balance": sim.balance, "min_balance": min_balance,
 		"net_worth": sim.net_worth(), "stalls": sim.grid.built_stall_count(),
 		"rating": sim.score_rating(),
@@ -119,6 +119,16 @@ func _play(policy: String, session_seed: int) -> Dictionary:
 		"choices": choices, "hires": hires, "fires": fires,
 		"staff": sim.staff.size(),
 	}
+
+
+## What midnight will cost after one more section: rent (with the extra
+## stalls) plus wages — what a sensible player keeps in the bank.
+func _tonights_bills(sim: Simulation) -> float:
+	var wages := 0.0
+	for s in sim.staff.values():
+		wages += float(C.STAFF_WAGES[s.role])
+	var extra_rent := C.RENT_PER_STALL * sim.grid.next_section_stalls() * pow(1.0 + C.RENT_GROWTH, sim.day - 1)
+	return sim.daily_rent() + extra_rent + wages + float(C.STAFF_WAGES[C.Role.MAINTENANCE])
 
 
 func _choose(policy: String, sim: Simulation, inc) -> int:
@@ -207,11 +217,11 @@ func _report_outcomes(results: Dictionary) -> void:
 		var days_text := ""
 		for r in runs:
 			if r["bankrupt"]:
-				days_text += " d%d" % r["bankrupt_day"]
+				days_text += " %d" % r["bankrupt_day"]
 		print("%-14s %9.0f %9.0f %9.0f %6.0f %6.0f %8s %7.0f %7.0f %7.0f  %s%s" % [
 			policy, _avg(bal), _avg(nw), _avg(low), _avg(stall_counts), _avg(rep), "%d/%d" % [bankrupt, runs.size()],
 			_avg(fc["city_authority"]), _avg(fc["police"]), _avg(fc["shadow_clients"]), POLICIES[policy],
-			("  [bankrupt on%s]" % days_text) if days_text != "" else ""])
+			("  [bankrupt after day%s]" % days_text) if days_text != "" else ""])
 
 	# City events each style triggered.
 	print("\n--- City events seen per run (all styles) ---")

@@ -174,7 +174,7 @@ func _build_help() -> void:
 # gdlint: disable=max-line-length
 const HELP_TEXT := """[font_size=22][color=#f2d24a]How to play[/color][/font_size]
 
-You run an underground garage. Cars enter at the green [b]IN[/b] gate, park, and pay when they leave by the red [b]OUT[/b] gate. Every midnight you pay [b]rent and wages[/b], and rent rises a little each day. Keep the balance above [b]−$2,000[/b] for [b]7 days[/b] and finish with the highest [b]net worth[/b] you can.
+You run an underground garage. Cars enter at the green [b]IN[/b] gate, park, and pay when they leave by the red [b]OUT[/b] gate. Every midnight you pay [b]rent and wages[/b], and rent rises a little each day. Stay open for [b]7 days[/b] (you go bankrupt below [b]−$2,000[/b], or after [b]3 nights in a row below $0[/b]) and finish with the highest [b]net worth[/b] you can.
 
 [b]Grow[/b]: build new sections of the floor (+36 stalls each), install a ticket machine or CCTV, and set your own price. A bigger garage draws more drivers but costs more rent.
 

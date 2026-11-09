@@ -16,7 +16,7 @@ compiles. The Unreal code is untouched.
 3. Press **F5** (or the ▶ button, top right). The **main menu** appears:
    - **Tutorial**: a guided 10-step walkthrough on a tiny 12-stall garage
      (about 5 minutes). Start here the first time.
-   - **New Game**: the real 7-day game on a 40-stall garage.
+   - **New Game**: the real 7-day game: a 36-stall garage with room to grow to 144.
    - **How to Play**: rules and controls at a glance.
    - **Quit**.
 
@@ -35,6 +35,9 @@ compiles. The Unreal code is untouched.
 | **1 / 2 / 3** or click | Choose a branch on the red decision card |
 | **F1 / F2 / F3** | Hire Attendant / Security / Maintenance (hold **Shift** to let one go) |
 | **L** | Take a $5,000 loan |
+| **X** | Build the next section of the garage (+36 stalls) |
+| **T** / **C** | Buy a ticket machine / a CCTV level |
+| **, / .** | Lower / raise your price ($1.50–$6.00 an hour, in 50¢ steps) |
 | **[ / ]** | Halve / double city demand (playtest knob) |
 | **WASD / arrows**, right- or middle-drag | Pan |
 | **Mouse wheel** | Zoom |
@@ -45,7 +48,7 @@ compiles. The Unreal code is untouched.
 | **Enter** | Tutorial: go to the next step |
 | **F12** | Screenshot |
 
-The left panel's buttons do the same as the hire, fire, loan and speed keys.
+The left panel's buttons do the same as the hire, fire, loan, grow, price and speed keys.
 
 **On screen:** gray = lanes, green **IN** / red **OUT** = gates, tinted squares = stall
 types (teal compact, blue-gray standard, brown oversized, purple **M**otorcycle, blue
@@ -79,15 +82,34 @@ Finishing it puts a ✓ next to Tutorial in the menu. **Exit to menu** leaves at
 
 ## 3. The goal
 
-You run a **small 40-stall garage**. Keep it solvent for **7 in-game days** (one day
-is about 12 real minutes at ×1, or about 1.5 minutes at ×8). You go bankrupt if a
-day ends with your balance below **−$2,000**.
+Survive **7 in-game days** with the highest **net worth** you can (one day is about
+12 real minutes at ×1, or about 1.5 minutes at ×8). Net worth is your cash, minus
+what you owe the bank, plus 80% of everything you spent building the garage.
+At the end you get a rating: **Bronze** from $3,000, **Silver** from $7,000, **Gold**
+from $12,000.
 
-**Money.** You start with $2,500. Cars pay $3 per in-game hour, scaled by vehicle
-type, and ×1.5 during surge events. Every midnight you pay **rent ($750)**, staff
-wages (Attendant $80, Security $120, Maintenance $100) and any loan repayment. The
-bank lends at most $10,000 in total (L key, $5,000 at a time). Played well, the
-garage clears a few hundred dollars a day. Played carelessly, it loses money.
+**Money.** You start with $2,500 and 36 stalls on a floor built for 144. Cars pay
+$3 per in-game hour by default, scaled by vehicle type, and ×1.5 during surge events.
+Every midnight you pay **rent**, staff wages (Attendant $80, Security $120,
+Maintenance $100) and any loan repayment. Rent is $388 plus $10 per built stall
+($748 on day 1) and rises **5% every day**, so a garage that stands still slowly
+loses ground. The bank lends at most $10,000 in total (L key, $5,000 at a time).
+
+**Growing.** Money buys growth:
+- **Expansion (X):** opens the next section of the floor, +36 stalls each, for
+  $2,000, then $4,500, then $8,000. A bigger garage draws more drivers
+  (demand × (stalls / 36)^0.9), but each stall adds rent and more incidents.
+- **Ticket machine (T, $1,500):** the gate keeps moving without an attendant
+  (4 s → 1.25 s per car) and is faster with one.
+- **CCTV (C, $1,200 per level, 2 levels):** each level cuts crime incidents by 30%.
+- **Price (, and .):** a higher price earns more per car but drives customers
+  away (demand × ($3 / price)^1.3). It pays off when the garage is overflowing.
+
+**Ways to lose.** You go bankrupt if a day ends below **−$2,000**, or if you end
+**three nights in a row below $0** (the panel warns you after the first). The city
+fines you **$300** for each night with no Attendant or no Security on duty (and it
+costs reputation and City standing). A theft with no guard on the payroll costs an
+extra $200.
 
 **Reputation (0–100)** decides how many customers come: 0 means ×0.6 demand, 50
 means ×1.0, and 100 means ×1.4.
@@ -157,7 +179,7 @@ that came in the zip:
 ```bat
 cd Sublevel\godot
 set GODOT=C:\path\to\Godot_v4.x-stable_win64_console.exe
-run_tests.bat              :: 25 tests
+run_tests.bat              :: about 40 tests
 run_tests.bat --balance    :: balance table across demand levels
 ```
 
@@ -170,7 +192,8 @@ The test suite checks:
 - **Vehicle lifecycle:** park, pay, leave; each vehicle type uses the right stall.
 - **Decisions:** branches apply the JSON faction deltas and money; ignored cards fire the default branch; Security-only branches lock without a guard.
 - **Staff and incidents:** maintenance clears blocking incidents; unattended incidents get fined; towing removes the car.
-- **Economy:** day-end rent, wages and loan math; loan cap; bankruptcy; faction drift.
+- **Economy:** day-end rent, wages and loan math; loan cap; bankruptcy (hard floor and three red nights); faction drift.
+- **Growth and pressure:** expansion opens the next section and adds rent; ticket machine, CCTV and pricing; understaffing fines; theft without a guard; net worth and rating.
 - **Tension mechanics:** reputation scales demand; attendants speed up the gate; guards cut crime; incident rates scale with lot size.
 - **City events:** faction-triggered and scheduled events; surge pricing.
 - **Street queue:** overflow counts as lost cars.
@@ -214,21 +237,23 @@ These are deliberate. Most of them are what this playtest is meant to evaluate.
 | Pathing | Per-destination flow fields | Godot's `AStarGrid2D` with congestion weights | Same behavior, much faster in GDScript |
 | Visibility (§8) | Cameras and lights; with none placed, everything is visible | Everything is visible | No camera or light placement yet (needs build mode) |
 | Start time | Midnight | 06:00 | Midnight to 06:00 is nearly empty. Bad first impression. |
-| Starting lot | 24×16, 144 stalls | 16×10, **40 stalls** | Start small; expansion comes with excavation (§9) |
-| Economy | $10,000 start, $4/h, no rent, bankrupt below −$5,000, unlimited loans | $2,500 start, **$3/h**, **$750/day rent**, bankrupt below **−$2,000**, loans capped at $10,000 | Margins thin enough that mistakes matter |
+| Starting lot | 24×16, 144 stalls | Same floor, but only the top **36 stalls** are built; the rest opens in three paid sections | Start small and earn your growth |
+| Economy | $10,000 start, $4/h, no rent, bankrupt below −$5,000, unlimited loans | $2,500 start, **$3/h** (player-set), **rent $388 + $10/stall, +5%/day**, bankrupt below **−$2,000** or after **3 red nights**, loans capped at $10,000 | Margins thin enough that mistakes matter, and standing still loses |
+| Upgrades | — | Expansion, ticket machine, CCTV, pricing; score = net worth | Gives money a purpose |
+| Staffing | Optional | City fines $300/night per missing Attendant or Security | Firing everyone isn't a free win |
 | Demand | `VehicleArrivals.json` as-is | Curve ×1.7 (`DEMAND_CURVE_SCALE`), then × **reputation** (×0.6–×1.4) | Fills the small lot at rush hour; service quality feeds back into demand |
 | Attendants | Patrol only | Run the entry gate (4 s → 1 s → 0.5 s per car) | Gives the role a purpose |
 | Factions | Accumulate forever | Drift 15% toward 0 each midnight | Events reflect recent behavior, not one old choice |
 | Incident rates | Fixed | Scale with lot size; guards cut crime | A small garage isn't flooded with cards |
-| City-event bursts | 50 cars | Scaled to lot size (14 cars for 40 stalls) | A concert can't wreck reputation unavoidably |
+| City-event bursts | 50 cars | Scaled to lot size (about 13 cars for 36 stalls) | A concert can't wreck reputation unavoidably |
 | Street queue | Arrivals at a full gate are dropped | Up to 8 cars wait on the street for 15 s, then leave ("lost at gate") | Makes demand pressure visible and measurable |
 | Security role | Patrols only | Cuts crime incident rates; branches labelled "Security…" need a guard, who walks to the scene | Gives Security a purpose |
 | Unattended incidents | Never expire | Auto-resolve incidents left 2 in-game hours with no staff are fined $50 plus their JSON expiry delta | Makes the Maintenance hire matter |
 | Idle maintenance | — | Slowly repairs structural integrity | Gives Maintenance a job between incidents |
 | City inspection | Broadcast only | Fine of $500 and City −5 if integrity is below 50% | Implements the JSON note |
 
-Not in this build yet: excavation and multiple floors (§9), build mode (§13), CCTV
-view, save/load.
+Not in this build yet: multiple floors and excavation (§9; expansion here stays on
+one floor), build mode (§13), CCTV view, save/load.
 
 ---
 

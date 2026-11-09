@@ -809,7 +809,7 @@ func daily_rent() -> float:
 	return (C.RENT_BASE + C.RENT_PER_STALL * grid.built_stall_count()) * pow(1.0 + C.RENT_GROWTH, day - 1)
 
 
-## Score: cash minus debt, plus half of what's been invested in the garage.
+## Score: cash minus debt, plus the garage's value (a share of what was invested).
 func net_worth() -> float:
 	return balance - loan_principal + C.ASSET_VALUE_SHARE * invested
 

@@ -107,7 +107,7 @@ const TICKET_MACHINE_COST := 1500.0             # faster gate even without an at
 const CCTV_COST := 1200.0                       # per level
 const CCTV_MAX_LEVEL := 2
 const CCTV_CRIME_FACTOR := 0.7                  # crime incident rates × 0.7 per level
-const ASSET_VALUE_SHARE := 0.5                  # score counts half of what you invested
+const ASSET_VALUE_SHARE := 0.8                  # the garage is valued at 80% of what you invested
 const SCORE_RATINGS := [[12000.0, "Gold"], [7000.0, "Silver"], [3000.0, "Bronze"]]
 
 # ── Pressure: ways to lose ───────────────────────────────────────

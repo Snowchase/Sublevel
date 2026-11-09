@@ -396,7 +396,7 @@ func _refresh_left() -> void:
 		t += "[color=#6fd3ff]%s[/color] %ds%s\n" % [e["def"]["type"], left_s, "  SURGE" if e["def"]["surge_pricing"] else ""]
 
 	var occupied: int = sim.occupied_stalls()
-	var total: int = sim.grid.stalls.size()
+	var total: int = sim.grid.built_stall_count()
 	t += "\n[b]LOT[/b]\n"
 	var rep: float = sim.reputation
 	var rep_color := "#7be07b" if rep >= 60.0 else ("#ffb347" if rep >= 35.0 else "#ff6b5e")

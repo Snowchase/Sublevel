@@ -653,7 +653,7 @@ func test_score() -> bool:
 	sim.buy_expansion()
 	sim.take_loan()
 	var expected: float = sim.balance - sim.loan_principal + C.ASSET_VALUE_SHARE * float(C.EXPANSION_COSTS[0])
-	check(approx(sim.net_worth(), expected), "net worth = cash − debt + half of investments")
+	check(approx(sim.net_worth(), expected), "net worth = cash − debt + share of investments")
 	sim.balance = 100000.0
 	check(sim.score_rating() == String(C.SCORE_RATINGS[0][1]), "a rich garage rates %s" % C.SCORE_RATINGS[0][1])
 	sim.balance = -500.0
