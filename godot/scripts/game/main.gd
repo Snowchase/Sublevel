@@ -52,6 +52,7 @@ var _end_overlay_shown := false
 var auto_pause := true             # pause when a decision card appears (P toggles)
 var _paused_for_decision := false
 var game_mode := "play"            # "play" or "tutorial"
+var _framed_sections := -1         # re-frame the camera when the garage grows
 var tutorial: Tutorial = null
 
 
@@ -77,6 +78,10 @@ func _ready() -> void:
 	hud.speed_step_requested.connect(_step_speed)
 	hud.pause_toggled.connect(_toggle_pause)
 	hud.menu_requested.connect(go_to_menu)
+	hud.expand_requested.connect(_buy_expansion)
+	hud.ticket_machine_requested.connect(_buy_ticket_machine)
+	hud.cctv_requested.connect(_buy_cctv)
+	hud.price_step_requested.connect(_step_price)
 	hud.tutorial_next_requested.connect(_on_tutorial_next)
 	hud.tutorial_exit_requested.connect(go_to_menu)
 
@@ -212,6 +217,9 @@ func _process(delta: float) -> void:
 	else:
 		view.highlight_cells.clear()
 
+	if sim.grid.built_sections != _framed_sections:
+		_center_camera()
+
 	_pan_with_keys(delta)
 	hud.hover_text = view.describe_hovered()
 	hud.refresh(delta)
@@ -283,6 +291,26 @@ func _hire_or_fire(role: int, fire: bool) -> void:
 		_fire(role)
 	else:
 		_hire(role)
+
+
+func _buy_expansion() -> void:
+	if sim.buy_expansion():
+		logger.note(sim, "expand", sim.grid.built_stall_count())
+
+
+func _buy_ticket_machine() -> void:
+	if sim.buy_ticket_machine():
+		logger.note(sim, "ticket_machine", true)
+
+
+func _buy_cctv() -> void:
+	if sim.buy_cctv():
+		logger.note(sim, "cctv", sim.cctv_level)
+
+
+func _step_price(step: int) -> void:
+	sim.set_price(sim.hourly_rate + step * C.PRICE_STEP)
+	logger.note(sim, "price", sim.hourly_rate)
 
 
 func _take_loan() -> void:
@@ -382,6 +410,16 @@ func _handle_key(k: InputEventKey) -> void:
 			_hire_or_fire(C.Role.MAINTENANCE, k.shift_pressed)
 		KEY_L:
 			_take_loan()
+		KEY_X:
+			_buy_expansion()
+		KEY_T:
+			_buy_ticket_machine()
+		KEY_C:
+			_buy_cctv()
+		KEY_COMMA:
+			_step_price(-1)
+		KEY_PERIOD:
+			_step_price(1)
 		KEY_BRACKETLEFT:
 			_set_demand(demand_scale * 0.5)
 		KEY_BRACKETRIGHT:
@@ -414,7 +452,12 @@ func _center_camera() -> void:
 	var left := Hud.LEFT_W + 30.0
 	var right := Hud.RIGHT_W + 30.0
 	var free := Vector2(vp.x - left - right, vp.y - top - bottom)
-	var lot := view.grid_pixel_size()
+	# Frame the built part of the floor plus one row of the unbuilt area
+	# below it, so the player can see there's room to grow.
+	_framed_sections = sim.grid.built_sections
+	var full := view.grid_pixel_size()
+	var rows := mini(sim.grid.built_bottom_row() + 2, sim.grid.height)
+	var lot := Vector2(full.x, rows * view.TILE)
 	var z := clampf(minf(free.x / lot.x, free.y / lot.y), 0.5, 1.6)
 	camera.zoom = Vector2(z, z)
 	var free_center := Vector2(left + free.x * 0.5, top + free.y * 0.5)

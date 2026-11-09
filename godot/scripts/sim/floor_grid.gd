@@ -19,7 +19,13 @@ var types := PackedInt32Array()          # C.Tile per cell
 var blocked := PackedByteArray()         # 1 = incident blocks this cell
 var vehicle_count := PackedInt32Array()  # vehicles on lane/gate cells (stalls tracked by owner)
 var stall_owner := PackedInt32Array()    # vehicle id holding the stall, 0 = free
+var locked := PackedByteArray()          # 1 = unbuilt (expansion not bought yet)
 var stalls: Array[Vector2i] = []
+
+# Expansion sections: horizontal bands of rows, built from the top down.
+# Each is [first_row, last_row]; section 0 holds the gates.
+var sections: Array = []
+var built_sections := 0
 var unreachable_stalls := {}             # Vector2i -> true
 
 var entry_gate := NO_CELL
@@ -56,7 +62,20 @@ func is_blocked(cell: Vector2i) -> bool:
 
 
 func is_passable(cell: Vector2i) -> bool:
-	return in_bounds(cell) and is_drivable_type(types[idx(cell)]) and blocked[idx(cell)] == 0
+	return in_bounds(cell) and is_drivable_type(types[idx(cell)]) and blocked[idx(cell)] == 0 \
+		and locked[idx(cell)] == 0
+
+
+func is_locked(cell: Vector2i) -> bool:
+	return in_bounds(cell) and locked[idx(cell)] == 1
+
+
+## Section index a row belongs to (0 when the lot has no sections).
+func section_of_row(row: int) -> int:
+	for i in sections.size():
+		if row >= int(sections[i][0]) and row <= int(sections[i][1]):
+			return i
+	return 0
 
 
 # ── Layout ───────────────────────────────────────────────────────
@@ -78,10 +97,12 @@ func generate_default_layout(w: int = 24, h: int = 16) -> void:
 	blocked.resize(n)
 	vehicle_count.resize(n)
 	stall_owner.resize(n)
+	locked.resize(n)
 	types.fill(C.Tile.EMPTY)
 	blocked.fill(0)
 	vehicle_count.fill(0)
 	stall_owner.fill(0)
+	locked.fill(0)
 	stalls.clear()
 
 	var bands := _stall_bands(w - 6)
@@ -110,8 +131,76 @@ func generate_default_layout(w: int = 24, h: int = 16) -> void:
 	types[idx(entry_gate)] = C.Tile.ENTRY_GATE
 	types[idx(exit_gate)] = C.Tile.EXIT_GATE
 
+	# Sections end after each lane row (5, 8, 11, …); the last runs to the
+	# bottom wall. Every section holds two full rows of stalls.
+	sections.clear()
+	var start := 0
+	for y in range(3, h):
+		var lane_row := (y - 3) % 3 == 2
+		if lane_row and y < h - 3:
+			sections.append([start, y])
+			start = y + 1
+	sections.append([start, h - 1])
+	built_sections = sections.size()
+
 	_rebuild_astar()
 	_compute_reachability()
+
+
+## Marks every section from `count` on as unbuilt. Call once after the layout.
+func limit_built_sections(count: int) -> void:
+	built_sections = clampi(count, 1, sections.size())
+	for i in range(built_sections, sections.size()):
+		for y in range(int(sections[i][0]), int(sections[i][1]) + 1):
+			for x in width:
+				locked[idx(Vector2i(x, y))] = 1
+	_rebuild_astar()
+	_compute_reachability()
+
+
+## Opens the next unbuilt section. Returns the number of stalls it added.
+func build_next_section() -> int:
+	if built_sections >= sections.size():
+		return 0
+	var before := built_stall_count()
+	var rows: Array = sections[built_sections]
+	for y in range(int(rows[0]), int(rows[1]) + 1):
+		for x in width:
+			var cell := Vector2i(x, y)
+			locked[idx(cell)] = 0
+			astar.set_point_solid(cell, not is_passable(cell))
+	built_sections += 1
+	_compute_reachability()
+	return built_stall_count() - before
+
+
+func can_expand() -> bool:
+	return built_sections < sections.size()
+
+
+## Stalls in the next unbuilt section (0 when fully built).
+func next_section_stalls() -> int:
+	if not can_expand():
+		return 0
+	var rows: Array = sections[built_sections]
+	var n := 0
+	for s in stalls:
+		if s.y >= int(rows[0]) and s.y <= int(rows[1]):
+			n += 1
+	return n
+
+
+func built_stall_count() -> int:
+	var n := 0
+	for s in stalls:
+		if locked[idx(s)] == 0:
+			n += 1
+	return n
+
+
+## Last built row (for camera framing).
+func built_bottom_row() -> int:
+	return int(sections[built_sections - 1][1]) if not sections.is_empty() else height - 1
 
 
 ## Stall type for each stall column, left to right. Shares follow the
@@ -152,6 +241,9 @@ func _rebuild_astar() -> void:
 func _compute_reachability() -> void:
 	unreachable_stalls.clear()
 	for stall in stalls:
+		if locked[idx(stall)] == 1:
+			unreachable_stalls[stall] = true
+			continue
 		var inbound := find_path(entry_gate, stall)
 		var outbound := find_path(stall, exit_gate)
 		if inbound.is_empty() or outbound.is_empty():
@@ -250,7 +342,7 @@ func find_nearest_free_stall(from: Vector2i, allowed_types: Array, exclude: Dict
 func count_free_stalls() -> int:
 	var free := 0
 	for stall in stalls:
-		if stall_owner[idx(stall)] == 0:
+		if stall_owner[idx(stall)] == 0 and locked[idx(stall)] == 0:
 			free += 1
 	return free
 
@@ -258,7 +350,7 @@ func count_free_stalls() -> int:
 func random_lane_cell(rng: RandomNumberGenerator) -> Vector2i:
 	for _attempt in 32:
 		var cell := Vector2i(rng.randi_range(1, width - 2), rng.randi_range(1, height - 2))
-		if types[idx(cell)] == C.Tile.LANE and blocked[idx(cell)] == 0:
+		if types[idx(cell)] == C.Tile.LANE and blocked[idx(cell)] == 0 and locked[idx(cell)] == 0:
 			return cell
 	return NO_CELL
 

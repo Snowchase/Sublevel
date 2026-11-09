@@ -51,11 +51,11 @@ func _initialize() -> void:
 
 	var probe := Simulation.new()
 	probe.setup(1, data)
-	var stalls: int = probe.grid.stalls.size()
+	var stalls: int = probe.grid.built_stall_count()
 
 	print("\n=== SUBLEVEL balance report — %d full day(s) × %d seed(s) per row ===" % [days, seeds])
-	print("Lot: %d stalls. Start: $%d cash. Daily fixed costs: rent $%d + starter wages $%d. Bankrupt below $%d." % [
-		stalls, int(C.STARTING_BALANCE), int(C.DAILY_RENT),
+	print("Lot: %d stalls (no expansions in this report). Start: $%d cash. Day-1 rent $%d (+%d%%/day) + starter wages $%d. Bankrupt below $%d." % [
+		stalls, int(C.STARTING_BALANCE), int(probe.daily_rent()), int(C.RENT_GROWTH * 100),
 		int(C.STAFF_WAGES[0] + C.STAFF_WAGES[1] + C.STAFF_WAGES[2]), int(C.BANKRUPT_THRESHOLD)])
 
 	var report := {}

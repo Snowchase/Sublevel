@@ -34,6 +34,12 @@ const TESTS := [
 	"test_attendants_speed_up_gate",
 	"test_security_deters_crime",
 	"test_loan_cap",
+	"test_expansion",
+	"test_upgrades",
+	"test_pricing",
+	"test_understaffed_fine",
+	"test_theft_without_guard",
+	"test_score",
 	"test_city_events",
 	"test_street_queue_overflow",
 	"test_hud_and_main_scene_smoke",
@@ -158,20 +164,31 @@ func test_data_loads() -> bool:
 
 
 func test_layout() -> bool:
-	# Starting lot: small 16x10 garage.
+	# A game starts on a 24x16 floor with only the first section built: 36 stalls.
 	var sim := quiet_sim()
 	var grid = sim.grid
-	check(grid.width == 16 and grid.height == 10, "starting lot is 16x10 (got %dx%d)" % [grid.width, grid.height])
-	check(grid.stalls.size() == 40, "40 stalls (got %d)" % grid.stalls.size())
-	check(grid.entry_gate == Vector2i(4, 0), "entry gate at (4,0)")
-	check(grid.exit_gate == Vector2i(12, 0), "exit gate at (12,0)")
-	check(grid.unreachable_stalls.is_empty(), "every stall reachable (%d unreachable)" % grid.unreachable_stalls.size())
-	_check_stall_mix(grid, {C.Tile.STALL_COMPACT: 8, C.Tile.STALL_STANDARD: 16,
-		C.Tile.STALL_OVERSIZED: 8, C.Tile.STALL_MOTORCYCLE: 4, C.Tile.STALL_DISABLED: 4})
+	check(grid.width == 24 and grid.height == 16, "floor is 24x16 (got %dx%d)" % [grid.width, grid.height])
+	check(grid.sections.size() == 4, "floor has 4 expansion sections (got %d)" % grid.sections.size())
+	check(grid.built_sections == 1, "one section built at the start")
+	check(grid.built_stall_count() == 36, "36 stalls built at the start (got %d)" % grid.built_stall_count())
+	check(grid.entry_gate == Vector2i(6, 0), "entry gate at (6,0)")
+	check(grid.exit_gate == Vector2i(18, 0), "exit gate at (18,0)")
+	var built_unreachable := 0
+	for st in grid.stalls:
+		if not grid.is_locked(st) and grid.unreachable_stalls.has(st):
+			built_unreachable += 1
+	check(built_unreachable == 0, "every built stall is reachable (%d not)" % built_unreachable)
+	var built := {}
+	for st in grid.stalls:
+		if not grid.is_locked(st):
+			var t: int = grid.tile_at(st)
+			built[t] = int(built.get(t, 0)) + 1
+	check(built.size() == 5, "the starting section has every stall type (got %d types)" % built.size())
+	check(not grid.is_passable(Vector2i(12, 8)), "unbuilt lanes are impassable")
 
-	# The original 24x16 test lot still generates as before (future expansion).
+	# Fully built, the floor still has the original 144-stall mix.
 	var big := Simulation.new()
-	big.setup(1, data, Vector2i(24, 16))
+	big.setup(1, data, Vector2i(24, 16), C.ALL_SECTIONS)
 	check(big.grid.stalls.size() == 144, "24x16 lot has 144 stalls (got %d)" % big.grid.stalls.size())
 	check(big.grid.entry_gate == Vector2i(6, 0) and big.grid.exit_gate == Vector2i(18, 0), "24x16 gates at (6,0)/(18,0)")
 	check(big.grid.unreachable_stalls.is_empty(), "every 24x16 stall reachable")
@@ -342,7 +359,7 @@ func test_security_gated_branches() -> bool:
 func test_staff_clears_blocking_incident() -> bool:
 	var sim := quiet_sim()
 	sim.hire_staff(C.Role.MAINTENANCE)
-	var cell := Vector2i(12, 8)
+	var cell := Vector2i(12, 5)
 	check(sim.grid.tile_at(cell) == C.Tile.LANE, "test cell is a lane")
 	var inc = sim.spawn_incident("OilSpill", cell)
 	check(sim.grid.is_blocked(cell), "oil spill blocks the lane")
@@ -356,7 +373,7 @@ func test_staff_clears_blocking_incident() -> bool:
 	check(worker.fatigue > 0.0, "working raised fatigue")
 
 	# A worker standing on site must be drawn on their tile, not mid-step.
-	var inc2 = sim.spawn_incident("OilSpill", Vector2i(14, 8))
+	var inc2 = sim.spawn_incident("OilSpill", Vector2i(14, 5))
 	run_until(sim, func(): return worker.cell == inc2.cell, 2000)
 	run(sim, 10)
 	check(inc2.state == C.IncidentState.IN_PROGRESS and worker.move_progress() == 1.0,
@@ -403,7 +420,7 @@ func test_tow_consequence_removes_vehicle() -> bool:
 func test_firing_busy_worker_requeues_incident() -> bool:
 	var sim := quiet_sim()
 	sim.hire_staff(C.Role.MAINTENANCE)
-	var inc = sim.spawn_incident("FenderBender", Vector2i(12, 8))
+	var inc = sim.spawn_incident("FenderBender", Vector2i(12, 5))
 	run(sim, 2)
 	check(inc.state == C.IncidentState.IN_PROGRESS, "maintenance dispatched")
 	inc.spawn_tick = sim.tick_count - C.AUTO_INCIDENT_TIMEOUT - 100   # an old incident
@@ -422,16 +439,20 @@ func test_day_end_wages_and_loan() -> bool:
 	sim.hire_staff(C.Role.MAINTENANCE)   # 100
 	sim.take_loan()                      # +5000
 	var before := sim.balance
+	var rent: float = sim.daily_rent()
+	check(approx(rent, C.RENT_BASE + C.RENT_PER_STALL * 36.0), "day-1 rent = base + 36 stalls ($%.0f)" % rent)
 	sim.tick_count = C.TICKS_PER_DAY - 1
 	sim.tick()
 	var expected_loan := C.LOAN_AMOUNT * (C.LOAN_INTEREST_RATE + C.LOAN_REPAYMENT_FRACTION)
 	check(sim.day == 2, "day rolled over to 2")
-	check(approx(before - sim.balance, C.DAILY_RENT + 300.0 + expected_loan),
-		"paid rent $%.0f + wages $300 + loan $%.0f (paid %.2f)" % [C.DAILY_RENT, expected_loan, before - sim.balance])
+	check(approx(before - sim.balance, rent + 300.0 + expected_loan),
+		"paid rent $%.0f + wages $300 + loan $%.0f (paid %.2f)" % [rent, expected_loan, before - sim.balance])
+	check(approx(sim.daily_rent(), rent * (1.0 + C.RENT_GROWTH)), "rent rises %d%% the next day" % int(C.RENT_GROWTH * 100))
 	check(approx(sim.loan_principal, C.LOAN_AMOUNT * (1.0 - C.LOAN_REPAYMENT_FRACTION)), "principal reduced by 5%")
 	check(sim.day_history.size() == 1, "day summary recorded")
 	check(sim.stats["revenue"] == 0.0 and sim.stats["expenses"] == 0.0, "daily stats reset")
-	check(approx(float(sim.day_history[0]["expenses_by"].get("rent", 0.0)), C.DAILY_RENT), "rent recorded in expenses")
+	check(approx(float(sim.day_history[0]["expenses_by"].get("rent", 0.0)), rent), "rent recorded in expenses")
+	check(sim.day_history[0]["understaffed_fines"] == 0, "fully staffed garage is not fined")
 
 	# Factions drift back toward 0 at midnight.
 	var sim2 := quiet_sim()
@@ -507,10 +528,135 @@ func test_security_deters_crime() -> bool:
 
 	# Smaller lots have proportionally fewer incidents than the 144-stall reference.
 	var big := Simulation.new()
-	big.setup(1, data, Vector2i(24, 16))
-	var expected := pow(40.0 / 144.0, C.INCIDENT_SIZE_EXPONENT)
+	big.setup(1, data, Vector2i(24, 16), C.ALL_SECTIONS)
+	var expected := pow(36.0 / 144.0, C.INCIDENT_SIZE_EXPONENT)
 	check(approx(quiet_sim().incident_rate("OilSpill") / big.incident_rate("OilSpill"), expected, 0.001),
-		"40-stall lot has ×%.2f the incident rate of the 144-stall lot" % expected)
+		"36-stall start has ×%.2f the incident rate of the full 144-stall floor" % expected)
+	return true
+
+
+func test_expansion() -> bool:
+	var sim := quiet_sim()
+	var grid = sim.grid
+	var new_stall := Vector2i(10, 7)          # a stall in section 1
+	check(grid.is_locked(new_stall), "section 1 starts unbuilt")
+	check(grid.find_path(grid.entry_gate, new_stall).is_empty(), "no route into unbuilt bays")
+	check(approx(sim.expansion_cost(), float(C.EXPANSION_COSTS[0])), "first expansion costs $%d" % int(C.EXPANSION_COSTS[0]))
+
+	sim.balance = 100.0
+	check(not sim.buy_expansion(), "can't expand without the money")
+	check(grid.built_stall_count() == 36, "nothing built when unaffordable")
+
+	sim.balance = 50000.0
+	var rent_before: float = sim.daily_rent()
+	check(sim.buy_expansion(), "expansion bought")
+	check(grid.built_stall_count() == 72, "+36 stalls (now %d)" % grid.built_stall_count())
+	check(approx(sim.balance, 50000.0 - float(C.EXPANSION_COSTS[0])), "cost deducted")
+	check(not grid.is_locked(new_stall) and not grid.find_path(grid.entry_gate, new_stall).is_empty(), "new bays are reachable")
+	check(sim.daily_rent() > rent_before, "a bigger garage pays more rent")
+	var doubled := pow(2.0, C.CAPACITY_DEMAND_EXPONENT)
+	check(approx(sim.capacity_multiplier(), doubled, 0.001), "doubling stalls draws ×%.2f demand" % doubled)
+	check(sim.buy_expansion() and sim.buy_expansion(), "remaining expansions bought")
+	check(grid.built_stall_count() == 144, "fully built: 144 stalls")
+	check(sim.expansion_cost() < 0.0 and not sim.buy_expansion(), "nothing left to build")
+	var unreachable := 0
+	for st in grid.stalls:
+		if grid.unreachable_stalls.has(st):
+			unreachable += 1
+	check(unreachable == 0, "every stall reachable once fully built")
+
+	# Cars actually use new bays: fill the lot and see one park in section 1+.
+	var sim2 := quiet_sim(8)
+	sim2.balance = 50000.0
+	sim2.buy_expansion()
+	sim2.hire_staff(C.Role.ATTENDANT)   # keep the gate moving so the first section overflows
+	sim2.demand_scale = 6.0
+	var deep_parked := false
+	for _i in 6000:
+		sim2.tick()
+		for v in sim2.vehicles.values():
+			if v.is_parked() and v.cell.y >= 6:
+				deep_parked = true
+		if deep_parked:
+			break
+	check(deep_parked, "cars park in the newly built section")
+	return true
+
+
+func test_upgrades() -> bool:
+	var sim := quiet_sim()
+	sim.balance = 50000.0
+	check(sim.gate_ticks_per_car() == int(C.GATE_TICKS[0]), "no attendant, no machine: slow gate")
+	check(sim.buy_ticket_machine(), "ticket machine bought")
+	check(sim.gate_ticks_per_car() == int(C.GATE_TICKS_MACHINE[0]), "machine speeds the gate without an attendant")
+	check(not sim.buy_ticket_machine(), "only one ticket machine")
+	var theft: float = sim.incident_rate("TheftInProgress")
+	check(sim.buy_cctv(), "CCTV level 1 bought")
+	check(approx(sim.incident_rate("TheftInProgress") / theft, C.CCTV_CRIME_FACTOR, 0.001), "CCTV cuts theft rate to ×%.1f" % C.CCTV_CRIME_FACTOR)
+	check(sim.buy_cctv() and not sim.buy_cctv(), "CCTV caps at level %d" % C.CCTV_MAX_LEVEL)
+	check(approx(sim.invested, C.TICKET_MACHINE_COST + C.CCTV_COST * C.CCTV_MAX_LEVEL), "upgrade spending counted as investment")
+	return true
+
+
+func test_pricing() -> bool:
+	var sim := quiet_sim()
+	sim.set_price(6.0)
+	check(approx(sim.hourly_rate, 6.0), "price set to $6/h")
+	check(approx(sim.price_multiplier(), pow(C.HOURLY_RATE / 6.0, C.PRICE_ELASTICITY), 0.001), "higher price → fewer drivers")
+	sim.set_price(100.0)
+	check(approx(sim.hourly_rate, C.PRICE_MAX), "price capped at $%.2f" % C.PRICE_MAX)
+	sim.set_price(4.0)
+	var v = sim.spawn_vehicle("Standard")
+	run_until(sim, func(): return v.is_parked(), 600)
+	v.depart_tick = sim.tick_count + C.TICKS_PER_HOUR * 2
+	var before := sim.balance
+	run_until(sim, func(): return not sim.vehicles.has(v.id), 3000)
+	var paid := sim.balance - before
+	check(paid >= 4.0 * 2.0 and paid <= 4.0 * 2.3, "a 2-hour stay at $4/h pays about $8 (paid $%.2f)" % paid)
+	return true
+
+
+func test_understaffed_fine() -> bool:
+	var sim := quiet_sim()
+	sim.hire_staff(C.Role.MAINTENANCE)   # no Attendant, no Security
+	var rep_before := sim.reputation
+	sim.tick_count = C.TICKS_PER_DAY - 1
+	sim.tick()
+	var d: Dictionary = sim.day_history[0]
+	check(int(d["understaffed_fines"]) == 2, "fined for both missing roles")
+	check(approx(float(d["expenses_by"].get("fines", 0.0)), 2.0 * C.UNDERSTAFFED_FINE), "fines total $%d" % int(2.0 * C.UNDERSTAFFED_FINE))
+	check(approx(sim.reputation, rep_before + 2.0 * C.REP_UNDERSTAFFED), "reputation hit for running understaffed")
+	return true
+
+
+func test_theft_without_guard() -> bool:
+	var sim := quiet_sim()
+	var inc = sim.spawn_incident("TheftInProgress")
+	check(not sim.is_branch_available(inc, 0), "no guard: 'Security Intervenes' locked")
+	var before := sim.balance
+	check(sim.resolve_decision(inc.id, 2), "ignored the theft")
+	check(approx(before - sim.balance, 200.0 + C.THEFT_NO_GUARD_EXTRA), "theft with no guard costs $%d" % int(200.0 + C.THEFT_NO_GUARD_EXTRA))
+
+	var guarded := quiet_sim()
+	guarded.hire_staff(C.Role.SECURITY)
+	var inc2 = guarded.spawn_incident("TheftInProgress")
+	var before2 := guarded.balance
+	guarded.resolve_decision(inc2.id, 2)
+	check(approx(before2 - guarded.balance, 200.0), "with a guard on staff the same theft costs $200")
+	return true
+
+
+func test_score() -> bool:
+	var sim := quiet_sim()
+	sim.balance = 20000.0
+	sim.buy_expansion()
+	sim.take_loan()
+	var expected: float = sim.balance - sim.loan_principal + C.ASSET_VALUE_SHARE * float(C.EXPANSION_COSTS[0])
+	check(approx(sim.net_worth(), expected), "net worth = cash − debt + half of investments")
+	sim.balance = 100000.0
+	check(sim.score_rating() == String(C.SCORE_RATINGS[0][1]), "a rich garage rates %s" % C.SCORE_RATINGS[0][1])
+	sim.balance = -500.0
+	check(sim.score_rating() == "—", "a broke garage gets no rating")
 	return true
 
 

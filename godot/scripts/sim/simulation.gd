@@ -52,6 +52,10 @@ var _next_incident_tick: Dictionary = {}   # type -> tick
 var balance := C.STARTING_BALANCE
 var loan_principal := 0.0
 var reputation := C.REPUTATION_START   # 0-100, scales demand (playtest mechanic)
+var hourly_rate := C.HOURLY_RATE        # set by the player (pricing)
+var has_ticket_machine := false
+var cctv_level := 0
+var invested := 0.0                     # money spent on expansions and upgrades
 var _gate_busy := 0                    # ticks until the entry gate takes the next car
 var factions: Dictionary = {"city_authority": 0.0, "police": 0.0, "shadow_clients": 0.0}
 var bankrupt := false
@@ -70,7 +74,10 @@ var messages: Array = []             # recent log lines [{tick, text, kind}]
 
 ## Builds a fresh session. Pass a pre-loaded data_loader to share parsed
 ## JSON between many sims (tests); otherwise Data/ is read from disk.
-func setup(session_seed: int, shared_data: DataLoader = null, lot_size: Vector2i = C.START_LOT_SIZE) -> bool:
+## `start_sections` limits how much of the floor is built at the start
+## (C.ALL_SECTIONS for a fully built lot, e.g. the tutorial).
+func setup(session_seed: int, shared_data: DataLoader = null, lot_size: Vector2i = C.START_LOT_SIZE,
+		start_sections: int = C.START_SECTIONS) -> bool:
 	seed_value = session_seed
 	rng.seed = session_seed
 
@@ -83,6 +90,8 @@ func setup(session_seed: int, shared_data: DataLoader = null, lot_size: Vector2i
 
 	grid = FloorGrid.new()
 	grid.generate_default_layout(lot_size.x, lot_size.y)
+	if start_sections < grid.sections.size():
+		grid.limit_built_sections(start_sections)
 
 	tick_count = C.START_HOUR * C.TICKS_PER_HOUR
 	day = 1
@@ -157,7 +166,23 @@ func _update_demand() -> void:
 	var multiplier := 1.0
 	for e in active_events:
 		multiplier *= maxf(float(e["def"]["demand_multiplier"]), 0.0)
-	current_lambda = base * C.DEMAND_CURVE_SCALE * multiplier * demand_scale * reputation_multiplier()
+	current_lambda = base * C.DEMAND_CURVE_SCALE * multiplier * demand_scale \
+		* reputation_multiplier() * capacity_multiplier() * price_multiplier()
+
+
+## A bigger garage draws more drivers: ×1 at 36 stalls, ×1.8 at 72, ×3.2 at 144.
+func capacity_multiplier() -> float:
+	return pow(float(grid.built_stall_count()) / C.CAPACITY_REFERENCE_STALLS, C.CAPACITY_DEMAND_EXPONENT)
+
+
+## Higher prices scare drivers off: ×1 at the default rate.
+func price_multiplier() -> float:
+	return pow(C.HOURLY_RATE / hourly_rate, C.PRICE_ELASTICITY)
+
+
+func set_price(rate: float) -> void:
+	hourly_rate = clampf(snappedf(rate, C.PRICE_STEP), C.PRICE_MIN, C.PRICE_MAX)
+	log_message("Parking price set to $%.2f/hour." % hourly_rate, "info")
 
 
 ## Demand multiplier from reputation: 0 → ×0.6, 50 → ×1.0, 100 → ×1.4.
@@ -225,7 +250,7 @@ func _start_event(def: Dictionary) -> void:
 	if type_name == "Rainstorm":
 		rain_active = true
 	if int(def["spike_vehicles"]) > 0:
-		var share := float(grid.stalls.size()) / C.EVENT_SPIKE_REFERENCE_STALLS
+		var share := float(grid.built_stall_count()) / C.EVENT_SPIKE_REFERENCE_STALLS
 		_spike_remaining = maxi(1, roundi(int(def["spike_vehicles"]) * minf(share, 1.0)))
 		_spike_end_tick = tick_count + maxi(int(def["spike_window_ticks"]), 1)
 		_spike_accum = 0.0
@@ -293,7 +318,8 @@ func _tick_arrivals() -> void:
 ## Ticks the entry gate needs per car: slow without an attendant.
 func gate_ticks_per_car() -> int:
 	var attendants := count_staff(C.Role.ATTENDANT)
-	return int(C.GATE_TICKS[mini(attendants, C.GATE_TICKS.size() - 1)])
+	var table: Array = C.GATE_TICKS_MACHINE if has_ticket_machine else C.GATE_TICKS
+	return int(table[mini(attendants, table.size() - 1)])
 
 
 func _pick_vehicle_type() -> String:
@@ -344,7 +370,7 @@ func on_vehicle_parked(v: Vehicle) -> void:
 
 func on_vehicle_exited(v: Vehicle) -> void:
 	var hours := maxf(float(tick_count - v.park_start) / C.TICKS_PER_HOUR, C.MIN_BILLED_HOURS)
-	var fee := hours * C.HOURLY_RATE * float(v.def.get("revenue_mod", 1.0))
+	var fee := hours * hourly_rate * float(v.def.get("revenue_mod", 1.0))
 	if surge_active():
 		fee *= C.SURGE_MULTIPLIER
 	_earn(fee, "parking")
@@ -373,11 +399,12 @@ func parked_vehicles() -> Array:
 ## down for smaller lots, and for crime types, by Security guards on staff.
 func incident_rate(type_name: String) -> float:
 	var lam := float(data.incident_defs[type_name]["lambda"])
-	var stall_count := maxf(float(grid.stalls.size()), 1.0)
+	var stall_count := maxf(float(grid.built_stall_count()), 1.0)
 	lam *= pow(stall_count / C.INCIDENT_REFERENCE_STALLS, C.INCIDENT_SIZE_EXPONENT)
 	if type_name in C.CRIME_INCIDENTS:
 		var guards := count_staff(C.Role.SECURITY)
 		lam *= maxf(pow(C.SECURITY_CRIME_FACTOR, guards), C.SECURITY_CRIME_FLOOR)
+		lam *= pow(C.CCTV_CRIME_FACTOR, cctv_level)
 	return lam
 
 
@@ -559,6 +586,9 @@ func _apply_consequence(inc: Incident, tag: String) -> void:
 		_spend(-money, "losses")
 	if tag == "theft_completed_revenue_lost":
 		change_reputation(C.REP_THEFT)
+		if count_staff(C.Role.SECURITY) == 0:
+			_spend(C.THEFT_NO_GUARD_EXTRA, "losses")
+			log_message("No guard on duty — the thieves cleaned out several cars.", "bad")
 
 
 ## Returns true if a car was removed.
@@ -722,6 +752,75 @@ func take_loan() -> bool:
 	return true
 
 
+# ── Growth purchases ─────────────────────────────────────────────
+
+func expansion_cost() -> float:
+	var level := grid.built_sections - 1          # expansions already bought
+	if not grid.can_expand() or level >= C.EXPANSION_COSTS.size():
+		return -1.0
+	return float(C.EXPANSION_COSTS[level])
+
+
+## Builds the next section of the floor. Returns false if unaffordable or full.
+func buy_expansion() -> bool:
+	var cost := expansion_cost()
+	if cost < 0.0:
+		log_message("The garage is fully built.", "info")
+		return false
+	if balance < cost:
+		log_message("Expansion costs $%d — not enough money (a loan can help)." % int(cost), "warn")
+		return false
+	_spend(cost, "construction")
+	invested += cost
+	var added := grid.build_next_section()
+	log_message("Expansion built: +%d stalls (%d total). Rent rises with size." % [added, grid.built_stall_count()], "good")
+	return true
+
+
+func buy_ticket_machine() -> bool:
+	if has_ticket_machine:
+		return false
+	if balance < C.TICKET_MACHINE_COST:
+		log_message("Ticket machine costs $%d — not enough money." % int(C.TICKET_MACHINE_COST), "warn")
+		return false
+	_spend(C.TICKET_MACHINE_COST, "upgrades")
+	invested += C.TICKET_MACHINE_COST
+	has_ticket_machine = true
+	log_message("Ticket machine installed: the gate is faster, even without an attendant.", "good")
+	return true
+
+
+func buy_cctv() -> bool:
+	if cctv_level >= C.CCTV_MAX_LEVEL:
+		return false
+	if balance < C.CCTV_COST:
+		log_message("CCTV costs $%d — not enough money." % int(C.CCTV_COST), "warn")
+		return false
+	_spend(C.CCTV_COST, "upgrades")
+	invested += C.CCTV_COST
+	cctv_level += 1
+	log_message("CCTV level %d installed: fewer thefts and suspicious vehicles." % cctv_level, "good")
+	return true
+
+
+## Today's rent: base + per built stall, compounding daily inflation.
+func daily_rent() -> float:
+	return (C.RENT_BASE + C.RENT_PER_STALL * grid.built_stall_count()) * pow(1.0 + C.RENT_GROWTH, day - 1)
+
+
+## Score: cash minus debt, plus half of what's been invested in the garage.
+func net_worth() -> float:
+	return balance - loan_principal + C.ASSET_VALUE_SHARE * invested
+
+
+func score_rating() -> String:
+	var nw := net_worth()
+	for r in C.SCORE_RATINGS:
+		if nw >= float(r[0]):
+			return String(r[1])
+	return "—"
+
+
 func _earn(amount: float, category: String) -> void:
 	balance += amount
 	stats["revenue"] += amount
@@ -740,7 +839,17 @@ func _tick_economy() -> void:
 
 
 func _end_day() -> void:
-	_spend(C.DAILY_RENT, "rent")
+	_spend(daily_rent(), "rent")
+
+	# Minimum staffing: the city fines a garage running without an
+	# Attendant or a Security guard.
+	for role in [C.Role.ATTENDANT, C.Role.SECURITY]:
+		if count_staff(role) == 0:
+			_spend(C.UNDERSTAFFED_FINE, "fines")
+			change_reputation(C.REP_UNDERSTAFFED)
+			apply_faction("city_authority", C.UNDERSTAFFED_CITY)
+			stats["understaffed_fines"] += 1
+			log_message("City fine: no %s on duty overnight ($%d)." % [C.ROLE_NAMES[role], int(C.UNDERSTAFFED_FINE)], "bad")
 
 	var wages := 0.0
 	for s in staff.values():
@@ -762,7 +871,10 @@ func _end_day() -> void:
 	var summary := stats.duplicate(true)
 	summary["day"] = day
 	summary["reputation"] = reputation
-	summary["stall_count"] = grid.stalls.size()
+	summary["stall_count"] = grid.built_stall_count()
+	summary["price"] = hourly_rate
+	summary["invested"] = invested
+	summary["net_worth"] = net_worth()
 	summary["avg_occupancy"] = (float(stats["occupancy_sum"]) / stats["occupancy_samples"]) if stats["occupancy_samples"] > 0 else 0.0
 	summary["balance_end"] = balance
 	summary["loan_principal"] = loan_principal
@@ -800,12 +912,12 @@ func _reset_day_stats() -> void:
 		"revenue": 0.0, "expenses": 0.0,
 		"revenue_by": {}, "expenses_by": {},
 		"loans_taken": 0, "city_events": [],
-		"occupancy_sum": 0, "occupancy_samples": 0,
+		"occupancy_sum": 0, "occupancy_samples": 0, "understaffed_fines": 0,
 	}
 
 
 func occupied_stalls() -> int:
-	return grid.stalls.size() - grid.count_free_stalls()
+	return grid.built_stall_count() - grid.count_free_stalls()
 
 
 ## Called by the sim every CONGESTION_UPDATE_TICKS to track peak and
@@ -834,7 +946,8 @@ func log_message(text: String, kind: String = "info") -> void:
 ## equal signatures (determinism test).
 func state_signature() -> String:
 	var parts: PackedStringArray = []
-	parts.append("t%d d%d b%.4f l%.2f r%.3f" % [tick_count, day, balance, loan_principal, reputation])
+	parts.append("t%d d%d b%.4f l%.2f r%.3f s%d p%.2f" % [tick_count, day, balance, loan_principal, reputation,
+		grid.built_sections, hourly_rate])
 	for f in C.FACTIONS:
 		parts.append("%s%.3f" % [f, factions[f]])
 	for v in vehicles.values():

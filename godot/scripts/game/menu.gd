@@ -174,13 +174,15 @@ func _build_help() -> void:
 # gdlint: disable=max-line-length
 const HELP_TEXT := """[font_size=22][color=#f2d24a]How to play[/color][/font_size]
 
-You run a small underground garage. Cars enter at the green [b]IN[/b] gate, park, and pay when they leave by the red [b]OUT[/b] gate. Every midnight you pay [b]rent and wages[/b]. Keep the balance above [b]−$2,000[/b] for [b]7 days[/b].
+You run an underground garage. Cars enter at the green [b]IN[/b] gate, park, and pay when they leave by the red [b]OUT[/b] gate. Every midnight you pay [b]rent and wages[/b], and rent rises a little each day. Keep the balance above [b]−$2,000[/b] for [b]7 days[/b] and finish with the highest [b]net worth[/b] you can.
+
+[b]Grow[/b]: build new sections of the floor (+36 stalls each), install a ticket machine or CCTV, and set your own price. A bigger garage draws more drivers but costs more rent.
 
 [b]Reputation[/b] decides how many customers come. Serve cars well and it rises; turn cars away or ignore problems and it falls.
 
-[b]Staff[/b]: Attendants run the gate, Security deters crime, Maintenance cleans up incidents.
+[b]Staff[/b]: Attendants run the gate, Security deters crime, Maintenance cleans up incidents. The city fines you every night without an Attendant and a guard on duty.
 
-[table=2][cell][b]Space[/b]  [/cell][cell]Pause / resume[/cell][cell][b]+ / −[/b]  [/cell][cell]Change speed (×1 to ×16)[/cell][cell][b]1 2 3[/b]  [/cell][cell]Answer a decision card (or click it)[/cell][cell][b]F1 F2 F3[/b]  [/cell][cell]Hire Attendant / Security / Maintenance (Shift = let go)[/cell][cell][b]L[/b]  [/cell][cell]Take a $5,000 loan[/cell][cell][b]WASD[/b], wheel  [/cell][cell]Pan, zoom[/cell][cell][b]Tab[/b]  [/cell][cell]Day-by-day summary[/cell][cell][b]P[/b]  [/cell][cell]Auto-pause on decisions[/cell][cell][b]M[/b]  [/cell][cell]Back to this menu[/cell][/table]
+[table=2][cell][b]Space[/b]  [/cell][cell]Pause / resume[/cell][cell][b]+ / −[/b]  [/cell][cell]Change speed (×1 to ×16)[/cell][cell][b]1 2 3[/b]  [/cell][cell]Answer a decision card (or click it)[/cell][cell][b]F1 F2 F3[/b]  [/cell][cell]Hire Attendant / Security / Maintenance (Shift = let go)[/cell][cell][b]L[/b]  [/cell][cell]Take a $5,000 loan[/cell][cell][b]X T C[/b]  [/cell][cell]Expand / ticket machine / CCTV[/cell][cell][b], .[/b]  [/cell][cell]Lower / raise your price[/cell][cell][b]WASD[/b], wheel  [/cell][cell]Pan, zoom[/cell][cell][b]Tab[/b]  [/cell][cell]Day-by-day summary[/cell][cell][b]P[/b]  [/cell][cell]Auto-pause on decisions[/cell][cell][b]M[/b]  [/cell][cell]Back to this menu[/cell][/table]
 
 First time? Play the [b]Tutorial[/b] — it takes about 5 minutes."""
 # gdlint: enable=max-line-length

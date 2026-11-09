@@ -230,13 +230,13 @@ func _build_steps() -> void:
 		},
 		{
 			"title": "Your day at a glance",
-			"text": "Every midnight you pay rent ($750 in a real game) plus wages, so profit is tight.\nPress Tab to open the summary: each day's revenue, costs and reputation, and every decision you made.",
+			"text": "Every midnight you pay rent plus wages, and rent creeps up every day, so standing still slowly loses money.\nPress Tab to open the summary: each day's revenue, costs and reputation, and every decision you made.",
 			"done": _summary_done,
 			"auto": _summary_auto,
 		},
 		{
 			"title": "You're ready",
-			"text": "That's the core loop: keep cars flowing, deal with problems, and watch your money and reputation.\nA real game gives you 40 stalls, $2,500 and 7 days to survive. Good luck!",
+			"text": "That's the core loop. A real game starts with 36 stalls and $2,500 on a floor with room to grow: press X to build new sections, set your price with , and . — and keep an Attendant and a guard on duty or the city fines you. Finish 7 days with the highest net worth you can!",
 			"manual": true,
 			"setup": _finish_setup,
 		},

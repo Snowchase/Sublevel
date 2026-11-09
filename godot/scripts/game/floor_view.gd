@@ -100,6 +100,9 @@ func _draw_tiles() -> void:
 			var cell := Vector2i(x, y)
 			var t: int = grid.tile_at(cell)
 			var rect := Rect2(Vector2(cell) * TILE, Vector2(TILE, TILE))
+			if grid.is_locked(cell):
+				_draw_locked(rect, null)
+				continue
 			if t == C.Tile.WALL:
 				draw_rect(rect, TILE_COLORS[t])
 				continue
@@ -113,6 +116,7 @@ func _draw_tiles() -> void:
 
 	draw_string(font, cell_center(grid.entry_gate) + Vector2(-TILE, 5), "IN", HORIZONTAL_ALIGNMENT_CENTER, TILE * 2, 13, Color.WHITE)
 	draw_string(font, cell_center(grid.exit_gate) + Vector2(-TILE, 5), "OUT", HORIZONTAL_ALIGNMENT_CENTER, TILE * 2, 13, Color.WHITE)
+	_draw_expansion_sign()
 
 
 func _draw_incidents() -> void:
@@ -262,6 +266,9 @@ func _draw_tiles_art() -> void:
 			var rect := Rect2(Vector2(cell) * TILE, Vector2(TILE, TILE))
 			if t == C.Tile.EMPTY:
 				continue
+			if grid.is_locked(cell):
+				_draw_locked(rect, concrete)
+				continue
 			if t == C.Tile.WALL:
 				# The wall texture has its hazard stripe on the bottom edge; turn
 				# each wall so the stripe faces into the garage.
@@ -295,6 +302,38 @@ func _draw_tiles_art() -> void:
 
 	_draw_gate(grid.entry_gate, "IN", Color(0.25, 0.85, 0.35))
 	_draw_gate(grid.exit_gate, "OUT", Color(0.95, 0.3, 0.3))
+	_draw_expansion_sign()
+
+
+## Unbuilt floor: bare dark concrete with faint construction-tape stripes.
+func _draw_locked(rect: Rect2, concrete: Texture2D) -> void:
+	if concrete != null:
+		draw_texture_rect(concrete, rect, false, Color(0.26, 0.26, 0.29))
+	else:
+		draw_rect(rect, Color(0.07, 0.07, 0.08))
+	var tape := Color(0.95, 0.78, 0.2, 0.10)
+	draw_line(rect.position, rect.end, tape, 2.0)
+	draw_line(rect.position + Vector2(rect.size.x * 0.5, 0), rect.position + Vector2(rect.size.x, rect.size.y * 0.5), tape, 2.0)
+
+
+## Sign over the next unbuilt section: what expanding gets you and costs.
+func _draw_expansion_sign() -> void:
+	var grid = sim.grid
+	if not grid.can_expand():
+		return
+	var rows: Array = grid.sections[grid.built_sections]
+	var mid_y := (float(rows[0]) + float(rows[1]) + 1.0) * 0.5 * TILE
+	var cost: float = sim.expansion_cost()
+	var affordable: bool = sim.balance >= cost
+	var text := "UNBUILT  ·  Expand (X): +%d stalls for $%d" % [grid.next_section_stalls(), int(cost)]
+	var font := ThemeDB.fallback_font
+	var size := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 15)
+	var center := Vector2(grid.width * TILE * 0.5, mid_y)
+	var box := Rect2(center - size * 0.5 - Vector2(12, 8), size + Vector2(24, 14))
+	draw_rect(box, Color(0.05, 0.05, 0.07, 0.85))
+	draw_rect(box, Color(0.95, 0.78, 0.2, 0.9) if affordable else Color(0.5, 0.5, 0.55, 0.8), false, 2.0)
+	draw_string(font, Vector2(box.position.x + 12, center.y + 5), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 15,
+		Color(1.0, 0.88, 0.4) if affordable else Color(0.75, 0.75, 0.8))
 
 
 func _draw_gate(cell: Vector2i, label: String, color: Color) -> void:
@@ -356,6 +395,8 @@ func describe_hovered() -> String:
 	var names := ["Empty", "Lane", "Standard stall", "Compact stall", "Oversized stall",
 		"Motorcycle stall", "Disabled stall", "Ramp up", "Ramp down", "Entry gate", "Exit gate", "Wall"]
 	var text := "(%d,%d) %s" % [hovered_cell.x, hovered_cell.y, names[t]]
+	if grid.is_locked(hovered_cell):
+		return "(%d,%d) Unbuilt — expand the garage (X) to build here" % [hovered_cell.x, hovered_cell.y]
 	if C.is_stall(t):
 		var owner_id: int = grid.stall_owner[grid.idx(hovered_cell)]
 		if owner_id != 0 and sim.vehicles.has(owner_id):

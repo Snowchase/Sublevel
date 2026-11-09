@@ -71,15 +71,25 @@ const FACTION_LABELS := {"city_authority": "City", "police": "Police", "shadow_c
 # ── Playtest tuning ──────────────────────────────────────────────
 # Values marked (UE) match the Unreal build. Others are playtest-only
 # hypotheses — they are the knobs this playtest is meant to evaluate.
-const START_LOT_SIZE := Vector2i(16, 10)        # 40 stalls; UE test lot is 24×16 (144)
+const START_LOT_SIZE := Vector2i(24, 16)        # full floor: 4 sections × 36 stalls (144)
+const START_SECTIONS := 1                       # built at the start (36 stalls); the rest are bought
+const ALL_SECTIONS := 99                        # pass to setup() for a fully built lot
 const TUTORIAL_LOT_SIZE := Vector2i(12, 8)      # 12 stalls for the guided tutorial
 # Multiplies the arrival curve in VehicleArrivals.json for this playtest
 # (that file is shared with UE, so it's left unchanged). At 1.7 the
 # 40-stall lot fills to ~75%+ at rush hour.
 const DEMAND_CURVE_SCALE := 1.7
 const STARTING_BALANCE := 2500.0                # UE: 10000
-const DAILY_RENT := 750.0                       # lease + utilities, paid at midnight
-const HOURLY_RATE := 3.0                        # UE: 4. $ per in-game hour
+# Rent is paid at midnight: a base plus a per-stall charge, rising a little
+# every day (inflation) so a garage that never grows slowly loses ground.
+const RENT_BASE := 100.0
+const RENT_PER_STALL := 18.0                    # 36 stalls → $748/day, 144 → $2,692
+const RENT_GROWTH := 0.05                       # +5% per day, compounding
+const HOURLY_RATE := 3.0                        # UE: 4. Default $ per in-game hour
+const PRICE_MIN := 1.5                          # the player can set the rate in this range
+const PRICE_MAX := 6.0
+const PRICE_STEP := 0.5
+const PRICE_ELASTICITY := 1.3                   # demand × (default / price) ^ elasticity
 const MIN_BILLED_HOURS := 0.25                  # (UE) 15-minute minimum
 const SURGE_MULTIPLIER := 1.5                   # (UE)
 const LOAN_AMOUNT := 5000.0                     # one press of the loan key
@@ -87,6 +97,23 @@ const MAX_LOAN_PRINCIPAL := 10000.0             # the bank stops lending past th
 const LOAN_INTEREST_RATE := 0.02                # (UE) daily, on principal
 const LOAN_REPAYMENT_FRACTION := 0.05           # (UE) of principal, daily
 const BANKRUPT_THRESHOLD := -2000.0             # UE: -5000. Checked at day end.
+
+# ── Growth: what money buys ──────────────────────────────────────
+const EXPANSION_COSTS := [4000.0, 7000.0, 10000.0]   # sections 1, 2, 3 (+36 stalls each)
+const CAPACITY_REFERENCE_STALLS := 36.0         # demand is tuned for the 36-stall start
+const CAPACITY_DEMAND_EXPONENT := 0.85          # a bigger garage draws more drivers: × (stalls/36)^0.85
+const TICKET_MACHINE_COST := 1500.0             # faster gate even without an attendant
+const CCTV_COST := 1200.0                       # per level
+const CCTV_MAX_LEVEL := 2
+const CCTV_CRIME_FACTOR := 0.7                  # crime incident rates × 0.7 per level
+const ASSET_VALUE_SHARE := 0.5                  # score counts half of what you invested
+const SCORE_RATINGS := [[12000.0, "Gold"], [7000.0, "Silver"], [3000.0, "Bronze"]]
+
+# ── Pressure: ways to lose ───────────────────────────────────────
+const UNDERSTAFFED_FINE := 300.0                # per missing role (Attendant, Security) per night
+const REP_UNDERSTAFFED := -4.0
+const UNDERSTAFFED_CITY := -5.0
+const THEFT_NO_GUARD_EXTRA := 200.0             # a theft with no guard on staff costs double
 const SHADOW_INCOME_PER_TICK := 0.05            # (UE) during BlackMarketNight
 
 const VEHICLE_TICKS_PER_TILE := 4.0             # (UE)
@@ -117,8 +144,10 @@ const REP_DECISION_IGNORED := -3.0              # decision card timed out (custo
 const REP_THEFT := -3.0                         # a theft went through
 
 # Attendants run the entry gate: ticks to process each arriving car,
-# indexed by attendants on staff (0, 1, 2+).
+# indexed by attendants on staff (0, 1, 2+). The ticket machine upgrade
+# switches to the faster table.
 const GATE_TICKS := [80, 20, 10]
+const GATE_TICKS_MACHINE := [25, 12, 8]
 
 # Security deters crime: each guard multiplies these incidents' rates by
 # SECURITY_CRIME_FACTOR, down to SECURITY_CRIME_FLOOR.

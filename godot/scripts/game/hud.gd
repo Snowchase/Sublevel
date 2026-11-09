@@ -19,6 +19,10 @@ signal pause_toggled
 signal menu_requested
 signal tutorial_next_requested
 signal tutorial_exit_requested
+signal expand_requested
+signal ticket_machine_requested
+signal cctv_requested
+signal price_step_requested(step: int)
 
 const LEFT_W := 268.0
 const RIGHT_W := 300.0
@@ -51,6 +55,9 @@ var _left_panel: PanelContainer
 var _right_panel: PanelContainer
 var _top_panel: PanelContainer
 
+var _expand_btn: Button
+var _ticket_btn: Button
+var _cctv_btn: Button
 var _tutorial_panel: PanelContainer
 var _tut_header: Label
 var _tut_title: Label
@@ -144,9 +151,21 @@ func _build() -> void:
 	misc_row.add_child(_make_button("Slower", func(): speed_step_requested.emit(-1)))
 	misc_row.add_child(_make_button("Faster", func(): speed_step_requested.emit(1)))
 	left_box.add_child(misc_row)
-	var menu_button := _make_button("Main menu (M)", func(): menu_requested.emit())
-	menu_button.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	left_box.add_child(menu_button)
+
+	var grow_row := HBoxContainer.new()
+	_expand_btn = _make_button("Expand", func(): expand_requested.emit())
+	_ticket_btn = _make_button("Ticket", func(): ticket_machine_requested.emit())
+	_cctv_btn = _make_button("CCTV", func(): cctv_requested.emit())
+	grow_row.add_child(_expand_btn)
+	grow_row.add_child(_ticket_btn)
+	grow_row.add_child(_cctv_btn)
+	left_box.add_child(grow_row)
+
+	var price_row := HBoxContainer.new()
+	price_row.add_child(_make_button("Price −", func(): price_step_requested.emit(-1)))
+	price_row.add_child(_make_button("Price +", func(): price_step_requested.emit(1)))
+	price_row.add_child(_make_button("Main menu (M)", func(): menu_requested.emit()))
+	left_box.add_child(price_row)
 
 	# Right panel
 	_right_panel = _make_panel()
@@ -191,7 +210,7 @@ func _build() -> void:
 	_help_label.add_theme_font_size_override("font_size", 11)
 	_help_label.add_theme_color_override("font_color", Color(0.55, 0.57, 0.62))
 	_help_label.text = "Space pause · P auto-pause · +/- speed · 1-3 decide · F1-F3 hire (Shift = fire) · L loan" \
-		+ " · [ ] demand · WASD/drag pan · wheel zoom · Tab summary · F12 screenshot"
+		+ " · X expand · T/C upgrades · , . price · WASD pan · wheel zoom · Tab summary"
 	add_child(_help_label)
 
 	_build_tutorial_panel()
@@ -342,10 +361,10 @@ func _refresh_top() -> void:
 		goal = "BANKRUPT"
 	if tutorial != null:
 		goal = "TUTORIAL"
-	_top_label.text = "SUBLEVEL playtest   Day %d (%s)  %s   %s   Balance %s   Today +%s / -%s   Loan %s   %s" % [
+	_top_label.text = "SUBLEVEL   Day %d (%s)  %s   %s   Balance %s   Today +%s / -%s   Loan %s   Worth %s   %s" % [
 		sim.day, day_kind, sim.clock_text(), speed_text,
 		_money(sim.balance), _money(sim.stats["revenue"]), _money(sim.stats["expenses"]),
-		_money(sim.loan_principal), goal]
+		_money(sim.loan_principal), _money(sim.net_worth()), goal]
 	_top_label.add_theme_color_override("font_color", Color(1, 0.5, 0.45) if sim.balance < 0.0 else Color(0.92, 0.92, 0.95))
 
 
@@ -388,7 +407,14 @@ func _refresh_left() -> void:
 	var integ_color := "#7be07b" if sim.grid.integrity > 0.6 else ("#ffb347" if sim.grid.integrity > 0.5 else "#ff6b5e")
 	t += "Structure [color=%s]%d%%[/color]   cracks %d\n" % [integ_color, int(sim.grid.integrity * 100), sim.grid.active_cracks]
 
-	t += "\n[b]COSTS[/b]  rent %s + wages %s per day\n" % [_money(C.DAILY_RENT), _money(_daily_wages())]
+	t += "\n[b]COSTS[/b]  rent %s + wages %s tonight\n" % [_money(sim.daily_rent()), _money(_daily_wages())]
+	var missing: Array[String] = []
+	if sim.count_staff(C.Role.ATTENDANT) == 0:
+		missing.append("Attendant")
+	if sim.count_staff(C.Role.SECURITY) == 0:
+		missing.append("Security")
+	if not missing.is_empty():
+		t += "[color=#ff6b5e]City fine tonight: no %s ($%d each)[/color]\n" % [" / ".join(PackedStringArray(missing)), int(C.UNDERSTAFFED_FINE)]
 	t += "Gate: %.1fs per car%s\n" % [sim.gate_ticks_per_car() * C.TICK_SECONDS,
 		"  [color=#ffb347](no attendant)[/color]" if sim.count_staff(C.Role.ATTENDANT) == 0 else ""]
 	t += "\n[b]STAFF[/b]\n"
@@ -400,7 +426,39 @@ func _refresh_left() -> void:
 			tired += 1
 	if tired > 0:
 		t += "[color=#ffb347]%d exhausted[/color]\n" % tired
+	t += "\n[b]GROW[/b]  %d stalls built" % sim.grid.built_stall_count()
+	if sim.grid.can_expand():
+		t += " · next +%d" % sim.grid.next_section_stalls()
+	t += "\nPrice $%.2f/h  (demand ×%.2f)\n" % [sim.hourly_rate, sim.price_multiplier()]
+	t += "Net worth %s  [color=#f2d24a]%s[/color]\n" % [_money(sim.net_worth()), sim.score_rating()]
 	_left_info.text = t
+	_refresh_grow_buttons()
+
+
+func _refresh_grow_buttons() -> void:
+	var cost: float = sim.expansion_cost()
+	if cost < 0.0:
+		_expand_btn.text = "Fully built"
+		_expand_btn.disabled = true
+	else:
+		_expand_btn.text = "Expand %s (X)" % _short_money(cost)
+		_expand_btn.disabled = sim.balance < cost
+	_ticket_btn.text = "Ticket ✓" if sim.has_ticket_machine else "Ticket %s (T)" % _short_money(C.TICKET_MACHINE_COST)
+	_ticket_btn.disabled = sim.has_ticket_machine or sim.balance < C.TICKET_MACHINE_COST
+	if sim.cctv_level >= C.CCTV_MAX_LEVEL:
+		_cctv_btn.text = "CCTV max"
+		_cctv_btn.disabled = true
+	else:
+		_cctv_btn.text = "CCTV %s (C)" % _short_money(C.CCTV_COST)
+		_cctv_btn.disabled = sim.balance < C.CCTV_COST
+
+
+## "$4k", "$1.5k", "$800".
+func _short_money(amount: float) -> String:
+	if amount >= 1000.0:
+		var k := amount / 1000.0
+		return "$%sk" % (str(int(k)) if is_equal_approx(k, roundf(k)) else str(snappedf(k, 0.1)))
+	return "$%d" % int(amount)
 
 
 func _daily_wages() -> float:
@@ -514,7 +572,10 @@ func _refresh_overlay() -> void:
 	if sim.bankrupt:
 		t += "[font_size=26][color=#ff6b5e]BANKRUPT[/color][/font_size]\nYour balance fell below %s. Press [b]R[/b] to restart.\n\n" % _money(C.BANKRUPT_THRESHOLD)
 	elif sim.goal_reached:
-		t += "[font_size=26][color=#7be07b]GOAL REACHED[/color][/font_size]\nSUBLEVEL survived %d days. Keep playing, or press [b]R[/b] to restart.\n\n" % C.GOAL_DAYS
+		var goal_fmt := "[font_size=26][color=#7be07b]GOAL REACHED[/color][/font_size]\nSUBLEVEL survived %d days. " \
+			+ "Final score: net worth [b]%s[/b] — [color=#f2d24a][b]%s[/b][/color].\nKeep playing, or press [b]R[/b] to restart.\n\n"
+		t += goal_fmt % [
+			C.GOAL_DAYS, _money(sim.net_worth()), sim.score_rating()]
 	else:
 		t += "[font_size=22]Session summary[/font_size]   (Tab to close · R restart · M main menu)\n\n"
 

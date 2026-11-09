@@ -20,6 +20,9 @@ const POLICIES := {
 	"shady": "always sides with Shadow clients",
 	"lawful": "always sides with Police + City",
 	"loan_shark": "careful, but takes the full $10k of loans on day 1",
+	"builder": "careful + expands whenever it can keep a $1.5k cushion, then buys upgrades",
+	"reckless": "borrows the full $10k on day 1 and expands as fast as possible",
+	"premium": "careful, but charges $4.50/h instead of $3",
 	"absent": "never answers a card, never manages anything",
 }
 
@@ -39,6 +42,8 @@ func _initialize() -> void:
 	_report_outcomes(results)
 	_report_pacing(results["careful"])
 	_report_progression(results["careful"])
+	print("\n(builder)")
+	_report_progression(results["builder"])
 	_report_decisions(results)
 	quit(0)
 
@@ -54,9 +59,11 @@ func _play(policy: String, session_seed: int) -> Dictionary:
 	if policy == "greedy":
 		sim.fire_staff(C.Role.ATTENDANT)
 		sim.fire_staff(C.Role.SECURITY)
-	if policy == "loan_shark":
+	if policy == "loan_shark" or policy == "reckless":
 		sim.take_loan()
 		sim.take_loan()
+	if policy == "premium":
+		sim.set_price(4.5)
 
 	var moments := {"decision": [], "incident": [], "event": []}
 	var choices: Dictionary = {}   # "Type → branch" -> count
@@ -90,12 +97,23 @@ func _play(policy: String, session_seed: int) -> Dictionary:
 			var acted := _manage(sim)
 			hires += acted.x
 			fires += acted.y
+		if (policy == "builder" or policy == "reckless") and sim.tick_count % C.TICKS_PER_HOUR == 0:
+			var cushion := 1500.0 if policy == "builder" else 0.0
+			var cost: float = sim.expansion_cost()
+			if cost > 0.0 and sim.balance >= cost + cushion:
+				sim.buy_expansion()
+			elif cost < 0.0 and policy == "builder":
+				if not sim.has_ticket_machine and sim.balance >= C.TICKET_MACHINE_COST + cushion:
+					sim.buy_ticket_machine()
+				elif sim.cctv_level < C.CCTV_MAX_LEVEL and sim.balance >= C.CCTV_COST + cushion:
+					sim.buy_cctv()
 
 	return {
 		"policy": policy, "seed": session_seed, "sim": sim,
 		"bankrupt": sim.bankrupt, "bankrupt_day": sim.day if sim.bankrupt else 0,
 		"final_balance": sim.balance, "min_balance": min_balance,
-		"net_worth": sim.balance - sim.loan_principal,
+		"net_worth": sim.net_worth(), "stalls": sim.grid.built_stall_count(),
+		"rating": sim.score_rating(),
 		"reputation": sim.reputation, "factions": sim.factions.duplicate(),
 		"days": sim.day_history.duplicate(true), "moments": moments,
 		"choices": choices, "hires": hires, "fires": fires,
@@ -165,14 +183,15 @@ func _avg(values: Array) -> float:
 
 func _report_outcomes(results: Dictionary) -> void:
 	print("\n--- Outcomes after %d days (average of %d seeds) ---" % [DAYS, SEEDS.size()])
-	print("%-14s %9s %9s %9s %6s %8s %7s %7s %7s  %s" % [
-		"player", "balance", "networth", "lowest", "rep", "bankrupt", "city", "police", "shadow", "style"])
+	print("%-14s %9s %9s %9s %6s %6s %8s %7s %7s %7s  %s" % [
+		"player", "balance", "networth", "lowest", "stalls", "rep", "bankrupt", "city", "police", "shadow", "style"])
 	for policy in results.keys():
 		var runs: Array = results[policy]
 		var bal: Array = []
 		var nw: Array = []
 		var low: Array = []
 		var rep: Array = []
+		var stall_counts: Array = []
 		var fc := {"city_authority": [], "police": [], "shadow_clients": []}
 		var bankrupt := 0
 		for r in runs:
@@ -180,12 +199,13 @@ func _report_outcomes(results: Dictionary) -> void:
 			nw.append(r["net_worth"])
 			low.append(r["min_balance"])
 			rep.append(r["reputation"])
+			stall_counts.append(r["stalls"])
 			for f in fc.keys():
 				fc[f].append(r["factions"][f])
 			if r["bankrupt"]:
 				bankrupt += 1
-		print("%-14s %9.0f %9.0f %9.0f %6.0f %8s %7.0f %7.0f %7.0f  %s" % [
-			policy, _avg(bal), _avg(nw), _avg(low), _avg(rep), "%d/%d" % [bankrupt, runs.size()],
+		print("%-14s %9.0f %9.0f %9.0f %6.0f %6.0f %8s %7.0f %7.0f %7.0f  %s" % [
+			policy, _avg(bal), _avg(nw), _avg(low), _avg(stall_counts), _avg(rep), "%d/%d" % [bankrupt, runs.size()],
 			_avg(fc["city_authority"]), _avg(fc["police"]), _avg(fc["shadow_clients"]), POLICIES[policy]])
 
 	# City events each style triggered.
