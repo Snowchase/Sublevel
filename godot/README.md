@@ -7,7 +7,27 @@ compiles. The Unreal code is untouched.
 
 ---
 
-## 1. Run it (Windows)
+## 0. Play the demo (no Godot needed)
+
+Every push builds a standalone **playable demo** in GitHub Actions
+(`.github/workflows/godot-demo.yml`):
+
+1. Open the repo's **Actions** tab → **Godot playable demo** → the latest green run.
+2. Under **Artifacts**, download **SUBLEVEL-demo-windows** (or `-linux`, `-web`).
+3. Unzip it and run `SUBLEVEL.exe`. Windows SmartScreen may warn that the app is
+   unrecognized, because the demo isn't code-signed. Click **More info → Run anyway**.
+
+The **web** build runs in a browser, but has to be served over http. Upload the zip to
+itch.io as an HTML game, or run `python -m http.server 8000` inside the unzipped folder
+and open <http://localhost:8000>. Each build includes a `README.txt` for players with
+the controls. CI also launches the exported Linux and web builds to check that they
+reach the menu with their data.
+
+To export locally from the editor: copy `../Data/*.json` into `godot/data/`, install
+the export templates (Editor → Manage Export Templates), then use **Project → Export**.
+The presets are in `export_presets.cfg`.
+
+## 1. Run it from source (Windows)
 
 1. Download **Godot 4.3 or newer — Standard edition** (not .NET) from
    <https://godotengine.org/download/windows/> and unzip it anywhere.
