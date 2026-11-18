@@ -7,6 +7,7 @@ config_version=5
 [application]
 
 config/name="SUBLEVEL Playtest"
+config/version="0.3.0"
 config/description="2D playtest build of the SUBLEVEL parking-garage simulator. Reads ../Data/*.json."
 run/main_scene="res://scenes/menu.tscn"
 config/features=PackedStringArray("4.3", "GL Compatibility")

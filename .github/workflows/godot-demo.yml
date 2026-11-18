@@ -1,0 +1,195 @@
+name: Godot playable demo
+
+# Exports the Godot playtest build as a standalone playable demo for Windows,
+# Linux and the web, checks that the Linux and web builds actually start, and
+# uploads one download per platform. Open the run page and download
+# "SUBLEVEL-demo-windows" (or -linux / -web) under Artifacts.
+
+on:
+  push:
+    paths:
+      - "godot/**"
+      - "Data/**"
+      - ".github/workflows/godot-demo.yml"
+  workflow_dispatch:
+
+env:
+  GODOT_VERSION: "4.5.1"
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: ~/godot
+          key: godot-${{ env.GODOT_VERSION }}-linux-x86_64
+
+      - name: Download Godot ${{ env.GODOT_VERSION }}
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/godot
+          cd ~/godot
+          curl -fsSL -o godot.zip \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q godot.zip
+          rm godot.zip
+          mv Godot_v${GODOT_VERSION}-stable_linux.x86_64 godot
+          chmod +x godot
+
+      # Only the templates this demo needs are kept (the full archive is ~1 GB).
+      - name: Cache export templates
+        id: cache-templates
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/godot/export_templates
+          key: godot-templates-${{ env.GODOT_VERSION }}-win-linux-web
+
+      - name: Download export templates
+        if: steps.cache-templates.outputs.cache-hit != 'true'
+        run: |
+          dest=~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          mkdir -p "$dest"
+          curl -fsSL -o /tmp/templates.tpz \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          unzip -j -o /tmp/templates.tpz -d "$dest" \
+            templates/version.txt \
+            templates/windows_release_x86_64.exe templates/windows_debug_x86_64.exe \
+            templates/linux_release.x86_64 templates/linux_debug.x86_64 \
+            templates/web_nothreads_release.zip templates/web_nothreads_debug.zip
+          rm /tmp/templates.tpz
+          ls -la "$dest"
+
+      - name: Bundle design data into the project
+        run: |
+          mkdir -p godot/data
+          cp Data/*.json godot/data/
+          ls godot/data
+
+      - name: Import project
+        run: timeout 180 ~/godot/godot --headless --path godot --import 2>&1 | tail -20 || true
+
+      - name: Export Windows, Linux and Web builds
+        run: |
+          set -o pipefail
+          mkdir -p godot/export/windows godot/export/linux godot/export/web
+          for preset in "Windows Desktop:export/windows/SUBLEVEL.exe" \
+                        "Linux:export/linux/SUBLEVEL.x86_64" \
+                        "Web:export/web/index.html"; do
+            name="${preset%%:*}"; path="${preset#*:}"
+            echo "::group::Export $name"
+            timeout 300 ~/godot/godot --headless --path godot --export-release "$name" "$path" 2>&1 | tail -30
+            echo "::endgroup::"
+            test -s "godot/$path" || { echo "Export failed: $name"; exit 1; }
+          done
+          ls -la godot/export/*
+
+      - name: Install virtual display
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libgl1 libegl1 libgl1-mesa-dri libglx-mesa0 \
+            libxcursor1 libxinerama1 libxrandr2 libxi6 libxkbcommon0 libfontconfig1 python3-pil > /dev/null
+
+      # Runs the exported Linux binary (not the editor) so a missing data file,
+      # asset or script in the .pck shows up here.
+      - name: Smoke test the exported Linux build
+        run: |
+          mkdir -p results
+          bin=godot/export/linux/SUBLEVEL.x86_64
+          chmod +x "$bin"
+          run() {   # run NAME SCENE [game args...]  (SCENE "" = start scene, the menu)
+            local name="$1"; local scene="$2"; shift 2
+            timeout 120 xvfb-run -a -s "-screen 0 1280x720x24" "$bin" \
+              --rendering-driver opengl3 --audio-driver Dummy $scene \
+              -- "$@" --screenshot="$GITHUB_WORKSPACE/results/demo_${name}.png" --screenshot-frames=45 \
+              2>&1 | tee "results/demo_${name}.log" || true
+          }
+          run menu ""
+          run game res://scenes/main.tscn --seed=7 --demand=3 --warmup-ticks=5000 --autoplay --speed=2
+          grep -h "\[SUBLEVEL\]" results/demo_*.log || true
+          if grep -q "DATA ERROR" results/demo_menu.log; then echo "Exported build cannot find its data"; exit 1; fi
+          grep -q "Playable demo" results/demo_menu.log || { echo "Menu did not start"; exit 1; }
+          test -s results/demo_menu.png && test -s results/demo_game.png
+
+      # Loads the web build in headless Chromium and checks the menu comes up.
+      - name: Smoke test the web build
+        continue-on-error: true
+        run: |
+          mkdir -p results /tmp/webcheck
+          (cd godot/export/web && python3 -m http.server 8060 > /tmp/http.log 2>&1 &)
+          cd /tmp/webcheck
+          npm init -y > /dev/null
+          npm install --silent playwright@1.49.1 > /dev/null
+          npx playwright install --with-deps chromium > /dev/null
+          cat > check.js <<'JS'
+          const { chromium } = require('playwright');
+          (async () => {
+            const browser = await chromium.launch({
+              args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
+            });
+            const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+            const lines = [];
+            page.on('console', (m) => { lines.push(m.text()); console.log('[console]', m.text()); });
+            page.on('pageerror', (e) => console.log('[pageerror]', e.message));
+            await page.goto('http://localhost:8060/index.html');
+            for (let i = 0; i < 60 && !lines.some((l) => l.includes('[SUBLEVEL]')); i++) {
+              await page.waitForTimeout(1000);
+            }
+            await page.waitForTimeout(3000);
+            await page.screenshot({ path: process.env.GITHUB_WORKSPACE + '/results/demo_web.png' });
+            await browser.close();
+            const ok = lines.some((l) => l.includes('Playable demo'));
+            console.log(ok ? 'WEB BUILD OK' : 'WEB BUILD DID NOT REACH THE MENU');
+            process.exit(ok ? 0 : 1);
+          })();
+          JS
+          node check.js
+
+      - name: Screenshot previews (base64 JPEG)
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import base64, glob, io
+          from PIL import Image
+          for path in sorted(glob.glob("results/demo_*.png")):
+              im = Image.open(path).convert("RGB")
+              im.thumbnail((800, 450))
+              buf = io.BytesIO()
+              im.save(buf, "JPEG", quality=62, optimize=True)
+              data = base64.b64encode(buf.getvalue()).decode()
+              print(f"=== PREVIEW {path} {im.size[0]}x{im.size[1]} {len(data)} ===")
+              for i in range(0, len(data), 8000):
+                  print(data[i:i + 8000])
+              print("=== END PREVIEW ===")
+          PY
+
+      - name: Add the demo readme to each build
+        run: |
+          for d in windows linux web; do cp godot/tools/demo/README.txt "godot/export/$d/README.txt"; done
+          du -sh godot/export/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SUBLEVEL-demo-windows
+          path: godot/export/windows/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SUBLEVEL-demo-linux
+          path: godot/export/linux/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SUBLEVEL-demo-web
+          path: godot/export/web/
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: demo-smoke-test
+          path: results/

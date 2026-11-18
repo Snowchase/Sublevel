@@ -109,6 +109,8 @@ func _build() -> void:
 
 	if not tutorial_done:
 		_buttons["tutorial"].add_theme_color_override("font_color", GOLD)
+	# A browser tab can't be closed from inside the page.
+	_buttons["quit"].visible = not OS.has_feature("web")
 
 	_status_label = Label.new()
 	_status_label.add_theme_font_size_override("font_size", 12)
@@ -191,10 +193,15 @@ First time? Play the [b]Tutorial[/b] — it takes about 5 minutes."""
 func _check_data() -> void:
 	var loader := DataLoader.new()
 	if loader.load_all():
-		_status_label.text = "Playtest build · Godot %s · data: %s" % [Engine.get_version_info()["string"], loader.data_dir]
+		if OS.has_feature("template"):   # an exported build (the playable demo)
+			_status_label.text = "Playable demo v%s · Godot %s" % [
+				ProjectSettings.get_setting("application/config/version", "?"), Engine.get_version_info()["string"]]
+		else:
+			_status_label.text = "Playtest build · Godot %s · data: %s" % [Engine.get_version_info()["string"], loader.data_dir]
 	else:
 		_status_label.text = "DATA ERROR: %s — keep the godot folder next to the repo's Data folder." % "; ".join(PackedStringArray(loader.errors))
 		_status_label.add_theme_color_override("font_color", Color(1.0, 0.45, 0.4))
+	print("[SUBLEVEL] %s" % _status_label.text)   # CI checks exported builds for DATA ERROR
 
 
 # ── Actions ──────────────────────────────────────────────────────
